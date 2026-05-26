@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { ApiError } from '../../lib/api';
+import { isFreshSignupInProgress, beginFreshSignup } from '../../lib/storage';
 import {
   type HouseholdType,
   HOUSEHOLD_TYPE_LABELS,
@@ -33,6 +34,14 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   const householdTypeKey = (household?.householdType || 'SINGLE') as HouseholdType;
+  const hasExistingHousehold = setupComplete && members.length > 0;
+
+  useEffect(() => {
+    if (hasExistingHousehold && (screen === 'signup-type' || screen === 'signup-details') && !isFreshSignupInProgress()) {
+      setScreen('welcome');
+      setError('Your household is already set up. Tap Log in and choose your name.');
+    }
+  }, [hasExistingHousehold, screen]);
 
   const pickType = (type: HouseholdType) => {
     setHouseholdType(type);
@@ -99,12 +108,14 @@ export function LoginPage() {
       (householdType === 'GROUP' && familyMembers.some((m) => m.trim())));
 
   const handleStartSignup = () => {
-    if (setupComplete) {
+    if (hasExistingHousehold) {
       const ok = window.confirm(
-        'Start fresh? This clears all data on this device and lets you sign up again. Export a backup in Settings first if you need one.',
+        'Start a brand-new household? This clears data on this device and replaces the cloud backup. Export a backup in Settings first if you need one.',
       );
       if (!ok) return;
       resetForNewSignup();
+    } else {
+      beginFreshSignup();
     }
     setScreen('signup-type');
     setError('');
@@ -132,13 +143,13 @@ export function LoginPage() {
             <>
               <h2 className="text-lg font-semibold text-center mb-1">Welcome</h2>
               <p className="text-sm text-gray-500 text-center mb-6">
-                {setupComplete
-                  ? 'Log in as yourself or your partner'
+                {hasExistingHousehold
+                  ? 'Your household is ready — log in as yourself'
                   : 'Create your account to get started'}
               </p>
 
               <div className="space-y-3">
-                {setupComplete && (
+                {hasExistingHousehold && (
                   <button
                     type="button"
                     onClick={() => {
@@ -158,27 +169,29 @@ export function LoginPage() {
                   onClick={handleStartSignup}
                   className={cn(
                     'w-full flex items-center justify-center gap-2 py-3 font-semibold rounded-xl transition-colors',
-                    setupComplete
+                    hasExistingHousehold
                       ? 'border-2 border-brand-200 text-brand-700 hover:bg-brand-50'
                       : 'bg-brand-600 text-white hover:bg-brand-700',
                   )}
                 >
                   <UserPlus size={18} />
-                  Sign up
+                  {hasExistingHousehold ? 'Create new household' : 'Sign up'}
                 </button>
 
-                {setupComplete && (
+                {hasExistingHousehold && (
                   <p className="text-center text-xs text-gray-400 pt-2">
                     {household?.householdName || HOUSEHOLD_TYPE_LABELS[householdTypeKey]}
                     {' · '}{members.length} {members.length === 1 ? 'person' : 'people'}
+                    {' · '}{members.map((m) => m.name).join(', ')}
                   </p>
                 )}
               </div>
+              {error && <p className="text-sm text-red-600 text-center mt-4">{error}</p>}
             </>
           )}
 
           {/* ── Log in: pick user ── */}
-          {screen === 'login' && setupComplete && (
+          {screen === 'login' && hasExistingHousehold && (
             <>
               <button
                 type="button"

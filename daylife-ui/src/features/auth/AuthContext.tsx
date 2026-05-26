@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api, User, HouseholdInfo } from '../../lib/api';
-import { loadData, resolveHouseholdType } from '../../lib/storage';
+import { loadData, resolveHouseholdType, beginFreshSignup, endFreshSignup } from '../../lib/storage';
 import type { SetupPayload } from '../../lib/household';
 
 interface AuthContextType {
@@ -49,12 +49,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       setIsLoading(false);
     }
+
+    const onDataChange = () => refreshHousehold();
+    window.addEventListener('daylife-data-changed', onDataChange);
+    return () => window.removeEventListener('daylife-data-changed', onDataChange);
   }, []);
 
   const setupHousehold = async (payload: SetupPayload) => {
     const res = await api.post<{ token: string; user: User }>('/auth/register', payload);
     api.setToken(res.token);
     setUser(res.user);
+    endFreshSignup();
     refreshHousehold();
   };
 
@@ -74,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const resetForNewSignup = () => {
     localStorage.removeItem('daylife_data');
     localStorage.removeItem('daylife_session');
+    beginFreshSignup();
     api.setToken(null);
     setUser(null);
     setMembers([]);

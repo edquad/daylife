@@ -797,7 +797,9 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
   // Auth
   if (route === '/auth/register' && method === 'POST') {
     const payload = body as SetupPayload;
-    if (data.setupComplete) throw new ApiError(403, 'Household already set up');
+    if (data.setupComplete) {
+      throw new ApiError(403, 'Household already set up — tap Log in and choose your name instead');
+    }
     if (!payload.name?.trim()) throw new ApiError(400, 'Name is required');
     if (!payload.householdType) throw new ApiError(400, 'Household type is required');
 

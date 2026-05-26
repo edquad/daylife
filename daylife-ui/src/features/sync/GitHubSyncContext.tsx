@@ -9,7 +9,7 @@ import {
   syncNow,
   scheduleGitHubPush,
 } from '../../lib/githubSync';
-import { registerDataSaveHook } from '../../lib/storage';
+import { registerDataSaveHook, isFreshSignupInProgress } from '../../lib/storage';
 
 function friendlySyncError(err: unknown): string {
   const msg = (err as Error)?.message || 'Could not sync';
@@ -44,6 +44,7 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   const pullFromGitHub = useCallback(async () => {
+    if (isFreshSignupInProgress()) return;
     const cfg = loadGitHubConfig();
     if (!isGitHubConfigured(cfg)) throw new Error('Cloud sync not available');
     setStatus('syncing');
@@ -111,6 +112,11 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
     }
 
     let cancelled = false;
+    if (isFreshSignupInProgress()) {
+      setStatus('idle');
+      setStatusMessage('Finish sign up first');
+      return;
+    }
     (async () => {
       setStatus('syncing');
       setStatusMessage('Loading your data…');

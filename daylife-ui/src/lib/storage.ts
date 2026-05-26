@@ -15,6 +15,7 @@ import type { HouseholdType } from './household';
 
 const STORAGE_KEY = 'daylife_data';
 const SESSION_KEY = 'daylife_session';
+const FRESH_SIGNUP_KEY = 'daylife_fresh_signup';
 
 /** Windows editors sometimes save JSON with a UTF-8 BOM, which breaks JSON.parse. */
 export function sanitizeJsonText(text: string): string {
@@ -153,6 +154,19 @@ export function loadData(): AppData {
 
 export function saveDataLocal(data: AppData): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  window.dispatchEvent(new CustomEvent('daylife-data-changed'));
+}
+
+export function beginFreshSignup(): void {
+  sessionStorage.setItem(FRESH_SIGNUP_KEY, '1');
+}
+
+export function isFreshSignupInProgress(): boolean {
+  return sessionStorage.getItem(FRESH_SIGNUP_KEY) === '1';
+}
+
+export function endFreshSignup(): void {
+  sessionStorage.removeItem(FRESH_SIGNUP_KEY);
 }
 
 export function saveData(data: AppData): void {
