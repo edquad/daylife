@@ -18,7 +18,7 @@ export default defineConfig({
         name: 'Rozka — Your day in one place',
         short_name: 'Rozka',
         description: 'Tasks, expenses, shopping, routines & shared lists — your daily life in one simple app.',
-        theme_color: '#0F766E',
+        theme_color: '#7C3AED',
         background_color: '#F9FAFB',
         display: 'standalone',
         orientation: 'portrait-primary',

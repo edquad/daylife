@@ -1,13 +1,38 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Rozka">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0F766E"/>
-      <stop offset="100%" stop-color="#14B8A6"/>
+    <linearGradient id="bg" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="55%" stop-color="#9333EA"/>
+      <stop offset="100%" stop-color="#EC4899"/>
     </linearGradient>
+    <linearGradient id="sun" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDE68A"/>
+      <stop offset="100%" stop-color="#FBBF24"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#4C1D95" flood-opacity="0.28"/>
+    </filter>
   </defs>
   <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <path d="M256 392c-78-52-128-96-128-152a80 80 0 0 1 160 0c0 56-50 100-128 152z" fill="#ffffff" opacity="0.95"/>
-  <rect x="128" y="128" width="256" height="32" rx="16" fill="#ffffff" opacity="0.35"/>
-  <rect x="152" y="184" width="208" height="20" rx="10" fill="#ffffff" opacity="0.25"/>
-  <rect x="176" y="224" width="160" height="20" rx="10" fill="#ffffff" opacity="0.2"/>
+  <!-- subtle daily ring -->
+  <circle cx="256" cy="256" r="168" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="10"/>
+  <!-- sunrise arc (roz = daily) -->
+  <path
+    d="M 148 198 C 148 132 196 84 256 84 C 316 84 364 132 364 198"
+    fill="none"
+    stroke="url(#sun)"
+    stroke-width="22"
+    stroke-linecap="round"
+  />
+  <circle cx="256" cy="92" r="16" fill="url(#sun)"/>
+  <!-- R monogram -->
+  <g filter="url(#soft)">
+    <path
+      fill="#FFFFFF"
+      d="M 168 176 H 228 C 286 176 318 206 318 252 C 318 292 294 316 258 324 L 332 392 H 276 L 214 328 H 214 V 392 H 168 V 176 Z M 214 216 V 288 H 226 C 258 288 274 274 274 252 C 274 230 258 216 226 216 H 214 Z"
+    />
+  </g>
+  <!-- one place dot -->
+  <circle cx="256" cy="418" r="18" fill="#FDE68A"/>
+  <circle cx="256" cy="418" r="8" fill="#FFFFFF"/>
 </svg>

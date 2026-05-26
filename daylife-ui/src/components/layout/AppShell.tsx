@@ -5,10 +5,11 @@ import { useGitHubSync } from '../../features/sync/GitHubSyncContext';
 import { api } from '../../lib/api';
 import { DayPicker } from '../DayPicker';
 import { InstallAppBanner } from '../InstallAppBanner';
+import { AppLogo } from '../AppLogo';
 import { APP_NAME, APP_TAGLINE } from '../../lib/brand';
 import {
   LayoutDashboard, CheckSquare, Receipt, Briefcase, Home, Settings,
-  Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star, HandCoins, Users, Mic,
+  Menu, X, Plus, LogOut, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star, HandCoins, Users, Mic,
 } from 'lucide-react';
 import { VoiceAssistantSheet, VoiceMicButton } from '../VoiceAssistant';
 
@@ -64,9 +65,7 @@ export function AppShell() {
       <aside className="hidden lg:flex flex-col w-64 border-r bg-white">
         <div className="p-4 border-b">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white">
-              <Heart size={16} />
-            </div>
+            <AppLogo size="sm" showShadow={false} />
             <div>
               <h1 className="text-lg font-bold text-brand-700">{APP_NAME}</h1>
               <p className="text-xs text-gray-400">{APP_TAGLINE}</p>
