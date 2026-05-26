@@ -7,7 +7,7 @@ import { cn } from '../lib/utils';
 import {
   parseVoiceTranscript,
   describeVoiceAction,
-  hintsForLang,
+  getVoiceHints,
   getVoiceLang,
   setVoiceLang,
   type VoiceAction,
@@ -23,34 +23,30 @@ import {
   speechErrorMessage,
 } from '../lib/speechRecognition';
 
-type VoiceState = 'idle' | 'listening' | 'processing';
+type VoiceState = 'idle' | 'listening' | 'processing' | 'preview';
 
 interface VoiceAssistantSheetProps {
   open: boolean;
   onClose: () => void;
 }
 
-const LANG_OPTIONS: Array<{ id: VoiceLang; label: string }> = [
-  { id: 'hi-IN', label: 'Hindi' },
-  { id: 'en-IN', label: 'English (IN)' },
-  { id: 'en-US', label: 'English (US)' },
-];
-
 export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [state, setState] = useState<VoiceState>('idle');
+  const [lang, setLang] = useState<VoiceLang>(() => getVoiceLang());
   const [transcript, setTranscript] = useState('');
   const [typed, setTyped] = useState('');
-  const [preview, setPreview] = useState<VoiceAction[]>([]);
+  const [pending, setPending] = useState<VoiceAction[]>([]);
   const [statusLine, setStatusLine] = useState('');
-  const [lang, setLang] = useState<VoiceLang>(() => getVoiceLang());
   const [voiceSupported] = useState(isVoiceInputSupported());
   const [onIOS] = useState(isIOSDevice());
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const transcriptRef = useRef('');
   const holdingRef = useRef(false);
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const hints = getVoiceHints(lang);
 
   useEffect(() => {
     if (!open) {
@@ -60,62 +56,81 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       setState('idle');
       setTranscript('');
       setTyped('');
-      setPreview([]);
+      setPending([]);
       setStatusLine('');
     }
   }, [open]);
 
-  const pickLang = (next: VoiceLang) => {
-    setVoiceLang(next);
+  const changeLang = (next: VoiceLang) => {
     setLang(next);
+    setVoiceLang(next);
   };
 
   const runActions = useCallback(
     async (actions: VoiceAction[]) => {
       if (!user?.id || actions.length === 0) {
-        setStatusLine('Samajh nahi aaya — neeche examples dekho');
+        setStatusLine(lang === 'hi-IN' ? 'समझ नहीं आया — नीचे example देखें' : 'Could not understand — see examples');
         setState('idle');
         return;
       }
       setState('processing');
-      setStatusLine('Add ho raha hai…');
+      setStatusLine(lang === 'hi-IN' ? 'जोड़ रहे हैं…' : 'Adding…');
       const result = await executeVoiceActions(actions, user.id);
       voiceQueryKeysToInvalidate().forEach((key) => {
         queryClient.invalidateQueries({ queryKey: key });
       });
+      setPending([]);
       setState('idle');
       if (result.ok.length > 0) {
-        toast.success(`Added ${result.ok.length} item${result.ok.length > 1 ? 's' : ''}`);
+        toast.success(
+          lang === 'hi-IN'
+            ? `${result.ok.length} चीज़ add हो गई`
+            : `Added ${result.ok.length} item${result.ok.length > 1 ? 's' : ''}`,
+        );
         onClose();
       }
       if (result.failed.length > 0) {
         setStatusLine(`Failed: ${result.failed.join(', ')}`);
-        toast.error('Could not add some items');
+        toast.error('Some items could not be added');
       }
     },
-    [user?.id, queryClient, onClose],
+    [user?.id, queryClient, onClose, lang],
   );
 
-  const buildPreview = useCallback((text: string): VoiceAction[] => {
-    const trimmed = text.trim();
-    if (!trimmed) return [];
-    setTranscript(trimmed);
-    const actions = parseVoiceTranscript(trimmed);
-    setPreview(actions);
-    return actions;
-  }, []);
+  const buildPreview = useCallback(
+    (text: string): VoiceAction[] => {
+      const trimmed = text.trim();
+      if (!trimmed) return [];
+      setTranscript(trimmed);
+      return parseVoiceTranscript(trimmed);
+    },
+    [],
+  );
 
   const submitText = useCallback(
-    (text: string) => {
+    (text: string, autoAdd = false) => {
       const actions = buildPreview(text);
       if (actions.length === 0) {
-        setStatusLine('Try: "kaam doodh lana" or "kharcha 500 sabzi"');
+        setStatusLine(
+          lang === 'hi-IN'
+            ? 'बोलें: task doodh lana या kharch 50 chai par'
+            : 'Try: task buy milk or kharch 50 chai par',
+        );
         setState('idle');
         return;
       }
-      setStatusLine(`Found ${actions.length} item${actions.length > 1 ? 's' : ''} — tap Add below`);
+      setPending(actions);
+      setState('preview');
+      setStatusLine(
+        lang === 'hi-IN'
+          ? `${actions.length} चीज़ मिली — Add दबाएं`
+          : `Found ${actions.length} item(s) — tap Add`,
+      );
+      if (autoAdd) {
+        void runActions(actions);
+      }
     },
-    [buildPreview],
+    [buildPreview, lang, runActions],
   );
 
   const finishListening = useCallback(() => {
@@ -123,14 +138,14 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
     stopTimerRef.current = setTimeout(() => {
       const text = transcriptRef.current.trim();
       holdingRef.current = false;
-      setState('idle');
       if (text) {
-        submitText(text);
+        submitText(text, true);
       } else {
-        setStatusLine('Kuch sunai nahi diya — dubara boliye');
+        setState('idle');
+        setStatusLine(lang === 'hi-IN' ? 'कुछ सुनाई नहीं दिया — फिर hold करें' : 'No speech heard — hold mic again');
       }
     }, 500);
-  }, [submitText]);
+  }, [submitText, lang]);
 
   const stopRecognition = useCallback(() => {
     try {
@@ -143,22 +158,22 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
   const startListening = useCallback(async () => {
     const SpeechCtor = getSpeechRecognitionCtor();
     if (!SpeechCtor) {
-      setStatusLine('iPhone par type karein — neeche box');
+      setStatusLine(lang === 'hi-IN' ? 'iPhone पर type करें' : 'Use text box on iPhone');
       return;
     }
 
     recognitionRef.current?.abort();
     setState('processing');
-    setStatusLine('Microphone allow karein…');
+    setStatusLine(lang === 'hi-IN' ? 'Mic allow करें…' : 'Allow microphone…');
     setTranscript('');
-    setPreview([]);
+    setPending([]);
     transcriptRef.current = '';
 
     const mic = await requestMicrophoneAccess();
     if (mic === 'denied') {
       setState('idle');
-      setStatusLine('Mic blocked — Settings se allow karein');
-      toast.error('Allow microphone');
+      setStatusLine(lang === 'hi-IN' ? 'Settings में mic allow करें' : 'Enable mic in Settings');
+      toast.error('Allow microphone access');
       return;
     }
 
@@ -170,7 +185,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
 
     recognition.onstart = () => {
       setState('listening');
-      setStatusLine(lang.startsWith('hi') ? 'Boliye… Hindi ya English' : 'Speak now…');
+      setStatusLine(lang === 'hi-IN' ? 'बोलें… (Hindi / English)' : 'Speak now…');
     };
 
     recognition.onresult = (event) => {
@@ -198,15 +213,14 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       recognition.start();
     } catch {
       setState('idle');
-      setStatusLine('Mic start nahi hua — type karein');
+      setStatusLine(lang === 'hi-IN' ? 'Mic start नहीं हुआ — type करें' : 'Mic failed — type below');
     }
   }, [finishListening, lang]);
 
   const handleHoldStart = (e: React.PointerEvent) => {
     e.preventDefault();
-    if (state === 'processing' && preview.length === 0) return;
+    if (state === 'processing') return;
     holdingRef.current = true;
-    setPreview([]);
     void startListening();
   };
 
@@ -219,15 +233,13 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
 
   if (!open) return null;
 
-  const hints = hintsForLang(lang);
-
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
       <div className="fixed inset-0 bg-black/50" onClick={onClose} aria-hidden />
       <div className="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-xl z-10 mx-0 sm:mx-4 overflow-hidden max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 bg-white z-10">
           <h2 className="font-semibold flex items-center gap-2">
-            <Sparkles size={18} className="text-brand-600" /> Bol kar add karein
+            <Sparkles size={18} className="text-brand-600" /> Quick add
           </h2>
           <button type="button" onClick={onClose} className="p-2 text-gray-400 touch-manipulation">
             <X size={20} />
@@ -235,94 +247,96 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
         </div>
 
         <div className="p-5">
-          <div className="flex gap-1.5 mb-4">
-            {LANG_OPTIONS.map((opt) => (
+          <div className="flex gap-2 mb-4">
+            {(['hi-IN', 'en-US'] as VoiceLang[]).map((code) => (
               <button
-                key={opt.id}
+                key={code}
                 type="button"
-                onClick={() => pickLang(opt.id)}
+                onClick={() => changeLang(code)}
                 className={cn(
-                  'flex-1 py-2 text-xs font-medium rounded-lg border touch-manipulation',
-                  lang === opt.id
+                  'flex-1 py-2 rounded-xl text-sm font-medium border touch-manipulation',
+                  lang === code
                     ? 'bg-brand-600 text-white border-brand-600'
                     : 'bg-white text-gray-600 border-gray-200',
                 )}
               >
-                {opt.label}
+                {code === 'hi-IN' ? 'हिंदी' : 'English'}
               </button>
             ))}
           </div>
 
           {onIOS && (
             <div className="mb-4 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
-              iPhone: voice nahi chalega — neeche Hindi/English type karein, same add hoga.
+              {lang === 'hi-IN'
+                ? 'iPhone पर voice नहीं चलता — नीचे Hindi/English type करें'
+                : 'No voice on iPhone — type below (works same way)'}
             </div>
           )}
 
           {voiceSupported && (
-            <div className="text-center mb-4">
+            <div className="text-center mb-5">
               <button
                 type="button"
                 onPointerDown={handleHoldStart}
                 onPointerUp={handleHoldEnd}
                 onPointerLeave={handleHoldEnd}
                 onPointerCancel={handleHoldEnd}
-                disabled={state === 'processing' && preview.length === 0}
+                disabled={state === 'processing'}
                 className={cn(
                   'w-24 h-24 rounded-full mx-auto flex items-center justify-center text-white shadow-lg touch-manipulation select-none',
                   state === 'listening'
                     ? 'bg-red-500 scale-110 ring-4 ring-red-200'
-                    : state === 'processing' && preview.length === 0
+                    : state === 'processing'
                       ? 'bg-gray-400'
                       : 'bg-violet-600 active:scale-95',
                 )}
               >
-                {state === 'processing' && preview.length === 0 ? (
+                {state === 'processing' ? (
                   <Loader2 size={36} className="animate-spin" />
                 ) : (
                   <Mic size={36} />
                 )}
               </button>
               <p className="mt-3 text-sm font-semibold">
-                {state === 'listening' ? 'Chhod dein jab bol lein' : 'Mic dabaye rakhein aur bolein'}
+                {state === 'listening'
+                  ? lang === 'hi-IN'
+                    ? 'छोड़ें जब बोल लें'
+                    : 'Release when done'
+                  : lang === 'hi-IN'
+                    ? 'Hold करके बोलें'
+                    : 'Hold to speak'}
               </p>
+              {transcript && (
+                <p className="mt-2 text-sm text-gray-600 italic px-2">&ldquo;{transcript}&rdquo;</p>
+              )}
             </div>
           )}
 
-          {transcript && (
-            <div className="mb-3 px-3 py-2 bg-gray-50 rounded-xl text-sm text-gray-700">
-              <span className="text-xs text-gray-400 block mb-1">Aapne kaha:</span>
-              &ldquo;{transcript}&rdquo;
-            </div>
-          )}
-
-          {preview.length > 0 && (
-            <div className="mb-4 rounded-xl border-2 border-green-200 bg-green-50 p-3 space-y-2">
-              <p className="text-xs font-semibold text-green-800 uppercase tracking-wide">Yeh add hoga</p>
-              {preview.map((a, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm text-green-900">
-                  <Check size={16} className="shrink-0 text-green-600" />
-                  {describeVoiceAction(a)}
-                </div>
-              ))}
+          {pending.length > 0 && state === 'preview' && (
+            <div className="mb-4 p-3 rounded-xl bg-green-50 border border-green-200">
+              <p className="text-xs font-semibold text-green-800 mb-2">
+                {lang === 'hi-IN' ? 'ये add होगा:' : 'Will add:'}
+              </p>
+              <ul className="space-y-1 text-sm text-green-900">
+                {pending.map((a, i) => (
+                  <li key={i}>• {describeVoiceAction(a)}</li>
+                ))}
+              </ul>
               <button
                 type="button"
-                onClick={() => void runActions(preview)}
-                disabled={state === 'processing'}
-                className="w-full mt-2 py-3 bg-green-600 text-white rounded-xl font-semibold text-sm touch-manipulation disabled:opacity-50"
+                onClick={() => void runActions(pending)}
+                className="mt-3 w-full py-3 bg-green-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 touch-manipulation"
               >
-                {state === 'processing' ? 'Adding…' : 'Add to DayLife'}
+                <Check size={18} /> {lang === 'hi-IN' ? 'Add करें' : 'Add now'}
               </button>
             </div>
           )}
 
-          {statusLine && !preview.length && (
-            <p className="mb-3 text-xs text-center text-gray-500">{statusLine}</p>
-          )}
+          {statusLine && <p className="text-xs text-gray-500 mb-3 text-center">{statusLine}</p>}
 
           <div className={voiceSupported ? 'border-t pt-4' : ''}>
             <p className="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
-              <Keyboard size={14} /> Type karein (Hindi / English)
+              <Keyboard size={14} /> {lang === 'hi-IN' ? 'Type करें' : 'Or type'}
             </p>
             <div className="flex gap-2">
               <input
@@ -331,35 +345,37 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    submitText(typed);
+                    submitText(typed, false);
                   }
                 }}
-                placeholder="kaam doodh lana"
+                placeholder={hints[0]}
                 className="flex-1 px-3 py-3 border rounded-xl text-base outline-none focus:ring-2 focus:ring-brand-500"
                 autoComplete="off"
                 enterKeyHint="done"
               />
               <button
                 type="button"
-                onClick={() => submitText(typed)}
-                disabled={!typed.trim()}
+                onClick={() => submitText(typed, false)}
+                disabled={!typed.trim() || state === 'processing'}
                 className="px-4 py-3 bg-brand-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 touch-manipulation shrink-0"
               >
-                Parse
+                {lang === 'hi-IN' ? 'देखें' : 'Parse'}
               </button>
             </div>
           </div>
 
           <div className="mt-4">
-            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Examples</p>
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
+              {lang === 'hi-IN' ? 'उदाहरण' : 'Examples'}
+            </p>
             <div className="flex flex-wrap gap-1.5">
-              {hints.slice(0, 5).map((hint) => (
+              {hints.map((hint) => (
                 <button
                   key={hint}
                   type="button"
                   onClick={() => {
                     setTyped(hint);
-                    submitText(hint);
+                    submitText(hint, false);
                   }}
                   className="text-xs text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-full px-3 py-1.5 touch-manipulation"
                 >
@@ -387,7 +403,7 @@ export function VoiceMicButton({ onClick, className, size = 'md' }: VoiceMicButt
     <button
       type="button"
       onClick={onClick}
-      title="Bol kar add karein"
+      title="Quick add — Hindi / English"
       className={cn(
         dims,
         'rounded-full bg-violet-600 text-white flex items-center justify-center shadow-md active:scale-95 touch-manipulation',
