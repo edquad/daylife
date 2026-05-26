@@ -6,7 +6,7 @@ import { useDateStore } from '../../lib/dateStore';
 import { formatDayHeading, formatMoney, todayISO } from '../../lib/format';
 import { DayPicker } from '../../components/DayPicker';
 import { PersonDayColumn } from '../../components/PersonDayColumn';
-import { Receipt, AlertCircle, Plus, StickyNote, CheckSquare, ShoppingCart, Sun, Bell, Sparkles } from 'lucide-react';
+import { Receipt, AlertCircle, Plus, StickyNote, CheckSquare, ShoppingCart, Sun, Bell, Sparkles, Star } from 'lucide-react';
 import { AREA_COLORS, AREA_LABELS, memberGridClass } from '../../lib/utils';
 import { HOUSEHOLD_TYPE_LABELS } from '../../lib/household';
 
@@ -57,6 +57,11 @@ export function DashboardPage() {
   const { data: members = [] } = useQuery<User[]>({
     queryKey: ['users'],
     queryFn: () => api.get('/users'),
+  });
+
+  const { data: visionItems = [] } = useQuery<Array<{ id: string; title: string; emoji?: string; achieved: boolean }>>({
+    queryKey: ['vision-board', 'preview'],
+    queryFn: () => api.get('/vision-board?achieved=false'),
   });
 
   const addNote = useMutation({
@@ -162,6 +167,27 @@ export function DashboardPage() {
           <p className="text-xs text-gray-400">coming in 2 weeks</p>
         </Link>
       </div>
+
+      {visionItems.length > 0 && (
+        <Link
+          to="/vision"
+          className="block bg-gradient-to-r from-violet-50 to-fuchsia-50 border border-violet-100 rounded-2xl p-4 hover:border-violet-200 transition-colors"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold flex items-center gap-2 text-violet-900">
+              <Star size={16} className="text-violet-600" /> Vision board
+            </h3>
+            <span className="text-xs text-violet-600">Open →</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {visionItems.slice(0, 4).map((v) => (
+              <span key={v.id} className="text-sm bg-white/80 px-3 py-1 rounded-full border border-violet-100">
+                {v.emoji || '✨'} {v.title}
+              </span>
+            ))}
+          </div>
+        </Link>
+      )}
 
       {upcomingReminders.length > 0 && isToday && (
         <section className="bg-white rounded-2xl border shadow-sm p-4">

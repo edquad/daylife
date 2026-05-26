@@ -114,6 +114,34 @@ export interface Reminder {
   createdById?: string;
 }
 
+export type VisionCategory =
+  | 'TRAVEL'
+  | 'HOME'
+  | 'CAREER'
+  | 'HEALTH'
+  | 'FINANCE'
+  | 'RELATIONSHIP'
+  | 'OTHER';
+
+export interface VisionBoardItem {
+  id: string;
+  title: string;
+  caption?: string;
+  imageUrl?: string;
+  emoji?: string;
+  category: VisionCategory;
+  color: string;
+  achieved: boolean;
+  ownerId?: string;
+  createdById?: string;
+  createdAt: string;
+}
+
+export interface VisionBoardItemEnriched extends VisionBoardItem {
+  owner?: { id: string; name: string; color: string };
+  createdBy?: { id: string; name: string };
+}
+
 export interface RoutineToday {
   id: string;
   name: string;
@@ -220,6 +248,19 @@ function enrichNote(data: ReturnType<typeof loadData>, note: DailyNote & { autho
     area: note.area,
     noteDate: note.noteDate,
     author: author ? userRef(author) : { id: '', name: 'Unknown', color: '#6B7280' },
+  };
+}
+
+function enrichVision(data: ReturnType<typeof loadData>, item: VisionBoardItem): VisionBoardItem & {
+  owner?: { id: string; name: string; color: string };
+  createdBy?: { id: string; name: string };
+} {
+  const owner = item.ownerId ? findUser(data, item.ownerId) : undefined;
+  const createdBy = item.createdById ? findUser(data, item.createdById) : undefined;
+  return {
+    ...item,
+    owner: owner ? userRef(owner) : undefined,
+    createdBy: createdBy ? { id: createdBy.id, name: createdBy.name } : undefined,
   };
 }
 
@@ -971,6 +1012,81 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     }
     if (method === 'DELETE') {
       data.reminders.splice(idx, 1);
+      saveData(data);
+      return undefined as T;
+    }
+  }
+
+  // Vision board
+  if (route === '/vision-board' && method === 'GET') {
+    const ownerId = q.get('ownerId');
+    let items = [...data.visionBoard];
+    if (ownerId === 'shared') items = items.filter((i) => !i.ownerId);
+    else if (ownerId) items = items.filter((i) => i.ownerId === ownerId);
+    const achieved = q.get('achieved');
+    if (achieved === 'true') items = items.filter((i) => i.achieved);
+    if (achieved === 'false') items = items.filter((i) => !i.achieved);
+    items.sort((a, b) => {
+      if (a.achieved !== b.achieved) return a.achieved ? 1 : -1;
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+    return items.map((i) => enrichVision(data, i)) as T;
+  }
+
+  if (route === '/vision-board' && method === 'POST') {
+    const b = body as {
+      title: string;
+      caption?: string;
+      imageUrl?: string;
+      emoji?: string;
+      category?: VisionCategory;
+      color?: string;
+      ownerId?: string | null;
+    };
+    if (!b.title?.trim()) throw new ApiError(400, 'Title is required');
+    const item: VisionBoardItem = {
+      id: uid(),
+      title: b.title.trim(),
+      caption: b.caption?.trim() || undefined,
+      imageUrl: b.imageUrl?.trim() || undefined,
+      emoji: b.emoji?.trim() || undefined,
+      category: b.category || 'OTHER',
+      color: b.color || '#6366F1',
+      achieved: false,
+      ownerId: b.ownerId || undefined,
+      createdById: sessionId!,
+      createdAt: new Date().toISOString(),
+    };
+    data.visionBoard.push(item);
+    saveData(data);
+    return enrichVision(data, item) as T;
+  }
+
+  const visionMatch = route.match(/^\/vision-board\/([^/]+)(\/achieve)?$/);
+  if (visionMatch) {
+    const idx = data.visionBoard.findIndex((i) => i.id === visionMatch[1]);
+    if (idx < 0) throw new ApiError(404, 'Vision card not found');
+    if (visionMatch[2] === '/achieve' && method === 'PATCH') {
+      data.visionBoard[idx].achieved = !data.visionBoard[idx].achieved;
+      saveData(data);
+      return enrichVision(data, data.visionBoard[idx]) as T;
+    }
+    if (method === 'PUT') {
+      const b = body as Partial<VisionBoardItem & { ownerId?: string | null }>;
+      const item = data.visionBoard[idx];
+      if (b.title) item.title = b.title.trim();
+      if (b.caption !== undefined) item.caption = b.caption.trim() || undefined;
+      if (b.imageUrl !== undefined) item.imageUrl = b.imageUrl.trim() || undefined;
+      if (b.emoji !== undefined) item.emoji = b.emoji.trim() || undefined;
+      if (b.category) item.category = b.category;
+      if (b.color) item.color = b.color;
+      if (b.ownerId === null) item.ownerId = undefined;
+      else if (b.ownerId) item.ownerId = b.ownerId;
+      saveData(data);
+      return enrichVision(data, item) as T;
+    }
+    if (method === 'DELETE') {
+      data.visionBoard.splice(idx, 1);
       saveData(data);
       return undefined as T;
     }

@@ -7,13 +7,14 @@ import { api, User } from '../../lib/api';
 import { DayPicker } from '../DayPicker';
 import {
   LayoutDashboard, CheckSquare, Receipt, Briefcase, Home, Settings,
-  Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2,
+  Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star,
 } from 'lucide-react';
 
 const navItems = [
   { path: '/', label: 'Day planner', icon: LayoutDashboard },
   { path: '/tasks', label: 'All tasks', icon: CheckSquare },
   { path: '/daily', label: 'Daily life', icon: Sparkles },
+  { path: '/vision', label: 'Vision board', icon: Star },
   { path: '/expenses', label: 'Expenses', icon: Receipt },
   { path: '/reports', label: 'Reports', icon: BarChart3 },
   { path: '/work', label: 'Work', icon: Briefcase },

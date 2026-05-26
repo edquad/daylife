@@ -11,6 +11,7 @@ import { TasksPage } from './features/tasks/TasksPage';
 import { ExpensesPage } from './features/expenses/ExpensesPage';
 import { ExpenseReportsPage } from './features/expenses/ExpenseReportsPage';
 import { DailyLifePage } from './features/daily/DailyLifePage';
+import { VisionBoardPage } from './features/vision/VisionBoardPage';
 import { WorkPage } from './features/work/WorkPage';
 import { HomePage } from './features/home/HomePage';
 import { SettingsPage } from './features/settings/SettingsPage';
@@ -55,6 +56,7 @@ export default function App() {
               <Route path="expenses" element={<ErrorBoundary><ExpensesPage /></ErrorBoundary>} />
               <Route path="reports" element={<ErrorBoundary><ExpenseReportsPage /></ErrorBoundary>} />
               <Route path="daily" element={<ErrorBoundary><DailyLifePage /></ErrorBoundary>} />
+              <Route path="vision" element={<ErrorBoundary><VisionBoardPage /></ErrorBoundary>} />
               <Route path="work" element={<ErrorBoundary><WorkPage /></ErrorBoundary>} />
               <Route path="home" element={<ErrorBoundary><HomePage /></ErrorBoundary>} />
               <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />

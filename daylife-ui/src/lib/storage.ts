@@ -8,6 +8,7 @@ import type {
   Routine,
   RoutineDayLog,
   Reminder,
+  VisionBoardItem,
 } from './api';
 import type { HouseholdType } from './household';
 
@@ -24,6 +25,7 @@ export interface AppData {
   routines: Routine[];
   routineLogs: RoutineDayLog[];
   reminders: Reminder[];
+  visionBoard: VisionBoardItem[];
   setupComplete: boolean;
   householdType?: HouseholdType;
   householdName?: string;
@@ -91,6 +93,7 @@ function emptyData(): AppData {
     routines: defaultRoutines(),
     routineLogs: [],
     reminders: [],
+    visionBoard: [],
     setupComplete: false,
   };
 }
@@ -104,6 +107,7 @@ export function normalizeAppData(parsed: Partial<AppData>): AppData {
     routines: parsed.routines?.length ? parsed.routines : defaultRoutines(),
     routineLogs: parsed.routineLogs ?? [],
     reminders: parsed.reminders ?? [],
+    visionBoard: parsed.visionBoard ?? [],
   };
   const resolvedType = resolveHouseholdType(merged);
   if (merged.householdType !== resolvedType) {
