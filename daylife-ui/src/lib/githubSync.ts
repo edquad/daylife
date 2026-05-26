@@ -1,15 +1,21 @@
 import type { AppData } from './storage';
 import { loadData, saveDataLocal, normalizeAppData, parseJsonText, sanitizeJsonText, jsonNeedsSanitizing } from './storage';
+import { getActiveAccountId, accountCloudPath } from './accounts';
 
 const CONFIG_KEY = 'daylife_github_sync';
 
 /** Built-in cloud storage — always on, no user setup. */
-const CLOUD = {
+function resolveCloudPath(): string {
+  const accountId = getActiveAccountId();
+  if (accountId) return accountCloudPath(accountId);
+  return 'data/daylife.json';
+}
+
+const CLOUD_BASE = {
   enabled: true,
   owner: 'edquad',
   repo: 'daylife-data',
   branch: 'main',
-  path: 'data/daylife.json',
 } as const;
 
 export interface GitHubSyncConfig {
@@ -43,7 +49,8 @@ export function loadGitHubConfig(): GitHubSyncConfig {
     /* ignore */
   }
   return {
-    ...CLOUD,
+    ...CLOUD_BASE,
+    path: resolveCloudPath(),
     enabled: true,
     token: resolveToken(),
     lastSyncedAt: meta.lastSyncedAt,
@@ -51,10 +58,20 @@ export function loadGitHubConfig(): GitHubSyncConfig {
   };
 }
 
-export function saveGitHubConfig(config: Pick<GitHubSyncConfig, 'lastSyncedAt' | 'lastSha'>): void {
+export function saveGitHubConfig(config: Partial<Pick<GitHubSyncConfig, 'lastSyncedAt' | 'lastSha'>>): void {
+  let meta: StoredSyncMeta = {};
+  try {
+    const raw = localStorage.getItem(CONFIG_KEY);
+    if (raw) meta = parseJsonText<StoredSyncMeta>(raw);
+  } catch {
+    /* ignore */
+  }
   localStorage.setItem(
     CONFIG_KEY,
-    JSON.stringify({ lastSyncedAt: config.lastSyncedAt, lastSha: config.lastSha }),
+    JSON.stringify({
+      lastSyncedAt: config.lastSyncedAt ?? meta.lastSyncedAt,
+      lastSha: config.lastSha !== undefined ? config.lastSha : meta.lastSha,
+    }),
   );
 }
 

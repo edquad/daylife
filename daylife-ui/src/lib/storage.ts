@@ -16,6 +16,12 @@ import type { HouseholdType } from './household';
 const STORAGE_KEY = 'daylife_data';
 const SESSION_KEY = 'daylife_session';
 const FRESH_SIGNUP_KEY = 'daylife_fresh_signup';
+const LEGACY_STORAGE_KEY = 'daylife_data';
+
+function dataStorageKey(): string {
+  const accountId = localStorage.getItem('daylife_account_id');
+  return accountId ? `daylife_data_${accountId}` : LEGACY_STORAGE_KEY;
+}
 
 /** Windows editors sometimes save JSON with a UTF-8 BOM, which breaks JSON.parse. */
 export function sanitizeJsonText(text: string): string {
@@ -139,7 +145,7 @@ export function normalizeAppData(parsed: Partial<AppData>): AppData {
 
 export function loadData(): AppData {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(dataStorageKey());
     if (!raw) return emptyData();
     const parsed = parseJsonText<AppData>(raw);
     const merged = normalizeAppData(parsed);
@@ -153,8 +159,12 @@ export function loadData(): AppData {
 }
 
 export function saveDataLocal(data: AppData): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  localStorage.setItem(dataStorageKey(), JSON.stringify(data));
   window.dispatchEvent(new CustomEvent('daylife-data-changed'));
+}
+
+export function clearAccountData(): void {
+  localStorage.removeItem(dataStorageKey());
 }
 
 export function beginFreshSignup(): void {

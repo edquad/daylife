@@ -10,6 +10,7 @@ import {
   scheduleGitHubPush,
 } from '../../lib/githubSync';
 import { registerDataSaveHook, isFreshSignupInProgress } from '../../lib/storage';
+import { getActiveAccountId } from '../../lib/accounts';
 
 function friendlySyncError(err: unknown): string {
   const msg = (err as Error)?.message || 'Could not sync';
@@ -102,12 +103,26 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('daylife-sync', onSync);
   }, []);
 
+  const [accountRevision, setAccountRevision] = useState(0);
+
+  useEffect(() => {
+    const onAccountChange = () => setAccountRevision((r) => r + 1);
+    window.addEventListener('daylife-account-changed', onAccountChange);
+    return () => window.removeEventListener('daylife-account-changed', onAccountChange);
+  }, []);
+
   useEffect(() => {
     const cfg = loadGitHubConfig();
     setConfig(cfg);
     if (!isGitHubConfigured(cfg)) {
       setStatus('error');
       setStatusMessage('Cloud sync unavailable');
+      return;
+    }
+
+    if (!getActiveAccountId()) {
+      setStatus('idle');
+      setStatusMessage('Sign in to load your data');
       return;
     }
 
@@ -137,7 +152,7 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
     })();
 
     return () => { cancelled = true; };
-  }, [invalidateApp]);
+  }, [invalidateApp, accountRevision]);
 
   useEffect(() => {
     if (!cloudReady) return;

@@ -118,18 +118,8 @@ export function DashboardPage() {
     <div className="p-4 lg:p-6 space-y-5">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {isMultiMember ? 'My day' : formatDayHeading(selectedDate)}
-            {isMultiMember && (
-              <span className="text-base font-normal text-gray-500 ml-2">{formatDayHeading(selectedDate)}</span>
-            )}
-          </h1>
-          <p className="text-gray-500 text-sm">
-            {isMultiMember
-              ? 'Your private items plus anything shared with the household'
-              : `${household?.householdName ||
-                  HOUSEHOLD_TYPE_LABELS[(household?.householdType || data?.householdType || 'SINGLE') as keyof typeof HOUSEHOLD_TYPE_LABELS]} · add tasks per person, check off when done`}
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900">{formatDayHeading(selectedDate)}</h1>
+          <p className="text-gray-500 text-sm">Your tasks, spend & notes for this day</p>
         </div>
         <DayPicker />
       </div>

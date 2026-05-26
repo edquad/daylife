@@ -127,6 +127,17 @@ export function SettingsPage() {
       </div>
 
       <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-3">
+        <h2 className="font-semibold">Account</h2>
+        <p className="text-sm text-gray-500">
+          This is your personal DayLife. Log out to sign in as someone else.
+        </p>
+        <button onClick={logout}
+          className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50 text-gray-700">
+          <LogOut size={16} /> Log out
+        </button>
+      </section>
+
+      <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-4 hidden">
         <h2 className="font-semibold">Household</h2>
         <div className="flex items-center gap-2">
           <span className="px-3 py-1 bg-brand-50 text-brand-700 text-sm font-medium rounded-full">
@@ -148,6 +159,11 @@ export function SettingsPage() {
         <h2 className="font-semibold flex items-center gap-2">
           <Heart size={18} className="text-brand-600" /> Your profile
         </h2>
+        {user?.username && (
+          <p className="text-sm text-gray-500">
+            Signed in as <span className="font-medium text-gray-800">@{user.username}</span>
+          </p>
+        )}
         <div>
           <label className="block text-sm font-medium mb-1">Display name</label>
           <input value={name} onChange={(e) => setName(e.target.value)}
@@ -168,7 +184,7 @@ export function SettingsPage() {
           <Lock size={18} className="text-brand-600" /> PIN lock
         </h2>
         <p className="text-sm text-gray-500">
-          Optional 4-digit PIN for this account. Required to log in or switch to you on a shared phone.
+          Optional 4-digit PIN. You&apos;ll need it when you sign in.
         </p>
         {user?.hasPin ? (
           <div className="flex flex-wrap gap-2">
@@ -198,7 +214,7 @@ export function SettingsPage() {
         )}
       </section>
 
-      <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
+      <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-4 hidden">
         <h2 className="font-semibold">People</h2>
         <div className="space-y-2">
           {members.map((m) => (

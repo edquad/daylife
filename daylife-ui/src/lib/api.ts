@@ -26,6 +26,7 @@ import {
 import type { ItemVisibility } from './privacy';
 import { defaultVisibility, isVisibleToViewer } from './privacy';
 import { hashPin, verifyPin, validatePinFormat } from './pin';
+import { normalizeUsername, validateUsername } from './accounts';
 
 export class ApiError extends Error {
   constructor(
@@ -41,6 +42,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  username?: string;
   role: string;
   color: string;
   hasPin?: boolean;
@@ -308,6 +310,7 @@ function publicUser(u: User): User {
     id: u.id,
     email: u.email,
     name: u.name,
+    username: u.username,
     role: u.role,
     color: u.color,
     hasPin: !!u.pinHash,
@@ -888,8 +891,39 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
   const sessionId = getSessionUserId();
 
   // Auth
-  if (route === '/auth/register' && method === 'POST') {
-    const payload = body as SetupPayload;
+  if ((route === '/auth/register' || route === '/auth/signup') && method === 'POST') {
+    const payload = body as SetupPayload & { username?: string; name?: string; pin?: string };
+
+    if (payload.username) {
+      const username = normalizeUsername(payload.username);
+      const usernameErr = validateUsername(username);
+      if (usernameErr) throw new ApiError(400, usernameErr);
+      if (!payload.name?.trim()) throw new ApiError(400, 'Name is required');
+      if (data.setupComplete) {
+        throw new ApiError(403, 'Already set up — log out first or use a different account');
+      }
+
+      const user: User = {
+        id: uid(),
+        username,
+        email: `${username}@local`,
+        name: payload.name.trim(),
+        role: 'OWNER',
+        color: MEMBER_COLORS[0],
+      };
+      if (payload.pin?.trim()) {
+        if (!validatePinFormat(payload.pin)) throw new ApiError(400, 'PIN must be 4 digits');
+        user.pinHash = await hashPin(payload.pin, user.id);
+      }
+      data.users = [user];
+      data.householdType = 'SINGLE';
+      data.settlements = [];
+      data.setupComplete = true;
+      saveData(data);
+      setSessionUserId(user.id);
+      return { token: user.id, user: publicUser(user) } as T;
+    }
+
     if (data.setupComplete) {
       throw new ApiError(403, 'Household already set up — tap Log in and choose your name instead');
     }
@@ -912,10 +946,17 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
   }
 
   if (route === '/auth/login' && method === 'POST') {
-    const { userId, pin } = body as { userId?: string; pin?: string };
-    if (!data.setupComplete) throw new ApiError(400, 'Please set up your household first');
-    const user = data.users.find((u) => u.id === userId);
-    if (!user) throw new ApiError(401, 'Please select who you are');
+    const { userId, username, pin } = body as { userId?: string; username?: string; pin?: string };
+    if (!data.setupComplete) throw new ApiError(400, 'No account yet — sign up first');
+    let user: User | undefined;
+    if (username) {
+      const key = normalizeUsername(username);
+      user = data.users.find((u) => u.username === key);
+      if (!user) throw new ApiError(401, 'Wrong username or PIN');
+    } else {
+      user = data.users.find((u) => u.id === userId);
+      if (!user) throw new ApiError(401, 'Please select who you are');
+    }
     if (user.pinHash) {
       if (!pin) throw new ApiError(401, 'Enter your 4-digit PIN');
       const ok = await verifyPin(pin, user.id, user.pinHash);
@@ -932,7 +973,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     return publicUser(user) as T;
   }
 
-  if (!sessionId && route !== '/auth/register') {
+  if (!sessionId && route !== '/auth/register' && route !== '/auth/signup' && route !== '/auth/login') {
     throw new ApiError(401, 'Not signed in');
   }
 

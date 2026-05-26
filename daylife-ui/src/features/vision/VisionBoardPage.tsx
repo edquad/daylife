@@ -30,8 +30,12 @@ const emptyForm = (userId?: string): FormState => ({
 });
 
 export function VisionBoardPage() {
-  const { user, members } = useAuth();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  const { data: members = [] } = useQuery<User[]>({
+    queryKey: ['users'],
+    queryFn: () => api.get('/users'),
+  });
   const [filter, setFilter] = useState<Filter>('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState<VisionBoardItemEnriched | null>(null);

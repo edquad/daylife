@@ -1,20 +1,28 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { api, User, HouseholdInfo } from '../../lib/api';
-import { loadData, resolveHouseholdType, beginFreshSignup, endFreshSignup } from '../../lib/storage';
-import type { SetupPayload } from '../../lib/household';
+import { api, User } from '../../lib/api';
+import { loadData, resolveHouseholdType, beginFreshSignup, endFreshSignup, clearAccountData } from '../../lib/storage';
 import { clearUnlock, markUserUnlocked } from '../../lib/pin';
 import { queryClient } from '../../lib/queryClient';
+import { createAccount, resolveAccountId, setActiveAccountId, getActiveAccountId, normalizeUsername } from '../../lib/accounts';
+import { loadGitHubConfig, saveGitHubConfig, syncNow } from '../../lib/githubSync';
+
+export interface SignupInput {
+  username: string;
+  name: string;
+  pin?: string;
+}
+
+export interface LoginInput {
+  username: string;
+  pin?: string;
+}
 
 interface AuthContextType {
   user: User | null;
-  members: User[];
-  household: HouseholdInfo | null;
   setupComplete: boolean;
-  setupHousehold: (payload: SetupPayload) => Promise<void>;
-  loginAs: (userId: string, pin?: string) => Promise<void>;
-  switchUser: (userId: string, pin?: string) => Promise<void>;
+  signup: (input: SignupInput) => Promise<void>;
+  login: (input: LoginInput) => Promise<void>;
   logout: () => void;
-  resetForNewSignup: () => void;
   refreshUser: () => Promise<void>;
   isLoading: boolean;
 }
@@ -23,28 +31,18 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [members, setMembers] = useState<User[]>([]);
-  const [household, setHousehold] = useState<HouseholdInfo | null>(null);
   const [setupComplete, setSetupComplete] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  const refreshHousehold = () => {
+  const refreshFromStorage = () => {
     const data = loadData();
-    setMembers(data.users.map((u) => ({ ...u, hasPin: !!u.pinHash })));
     setSetupComplete(data.setupComplete);
-    if (data.setupComplete) {
-      setHousehold({
-        householdType: resolveHouseholdType(data),
-        householdName: data.householdName,
-        members: data.users.map((u) => ({ ...u, hasPin: !!u.pinHash })),
-      });
-    }
   };
 
   useEffect(() => {
-    refreshHousehold();
+    refreshFromStorage();
     const savedToken = api.getToken();
-    if (savedToken) {
+    if (savedToken && getActiveAccountId()) {
       api.get<User>('/auth/me')
         .then((u) => {
           setUser(u);
@@ -56,59 +54,88 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     }
 
-    const onDataChange = () => refreshHousehold();
+    const onDataChange = () => refreshFromStorage();
     window.addEventListener('daylife-data-changed', onDataChange);
     return () => window.removeEventListener('daylife-data-changed', onDataChange);
   }, []);
 
-  const setupHousehold = async (payload: SetupPayload) => {
-    const res = await api.post<{ token: string; user: User }>('/auth/register', payload);
+  const signup = async ({ username, name, pin }: SignupInput) => {
+    clearUnlock();
+    api.setToken(null);
+    setUser(null);
+    beginFreshSignup();
+
+    const accountId = await createAccount(username);
+    setActiveAccountId(accountId);
+    clearAccountData();
+    saveGitHubConfig({ lastSha: undefined, lastSyncedAt: undefined });
+
+    const res = await api.post<{ token: string; user: User }>('/auth/signup', {
+      username: normalizeUsername(username),
+      name: name.trim(),
+      pin: pin?.trim() || undefined,
+    });
     api.setToken(res.token);
     markUserUnlocked(res.user.id);
     setUser(res.user);
     endFreshSignup();
-    refreshHousehold();
+    refreshFromStorage();
+
+    try {
+      await syncNow(loadGitHubConfig());
+    } catch {
+      /* local account still works */
+    }
     await queryClient.invalidateQueries();
   };
 
-  const loginAs = async (userId: string, pin?: string) => {
-    const res = await api.post<{ token: string; user: User }>('/auth/login', { userId, pin });
+  const login = async ({ username, pin }: LoginInput) => {
+    clearUnlock();
+    api.setToken(null);
+    setUser(null);
+
+    const accountId = await resolveAccountId(username);
+    if (!accountId) {
+      throw new Error('No account with that username. Sign up first.');
+    }
+
+    setActiveAccountId(accountId);
+    clearAccountData();
+    saveGitHubConfig({ lastSha: undefined, lastSyncedAt: undefined });
+
+    try {
+      await syncNow(loadGitHubConfig());
+    } catch {
+      throw new Error('Could not load your data from cloud. Check connection and try again.');
+    }
+
+    const res = await api.post<{ token: string; user: User }>('/auth/login', {
+      username: normalizeUsername(username),
+      pin: pin?.trim() || undefined,
+    });
     api.setToken(res.token);
     markUserUnlocked(res.user.id);
     setUser(res.user);
+    refreshFromStorage();
     await queryClient.invalidateQueries();
   };
-
-  const switchUser = loginAs;
 
   const logout = () => {
     clearUnlock();
     api.setToken(null);
     setUser(null);
-  };
-
-  const resetForNewSignup = () => {
-    clearUnlock();
-    localStorage.removeItem('daylife_data');
-    localStorage.removeItem('daylife_session');
-    beginFreshSignup();
-    api.setToken(null);
-    setUser(null);
-    setMembers([]);
-    setHousehold(null);
-    setSetupComplete(false);
+    setActiveAccountId(null);
   };
 
   const refreshUser = async () => {
     const me = await api.get<User>('/auth/me');
     setUser(me);
-    refreshHousehold();
+    refreshFromStorage();
   };
 
   return (
     <AuthContext.Provider value={{
-      user, members, household, setupComplete,
-      setupHousehold, loginAs, switchUser, logout, resetForNewSignup, refreshUser, isLoading,
+      user, setupComplete, signup, login, logout, refreshUser, isLoading,
     }}>
       {children}
     </AuthContext.Provider>
