@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, SplitBalancesResponse, User, Connection } from '../../lib/api';
+import { api, SplitBalancesResponse, User } from '../../lib/api';
 import { formatMoney, todayISO } from '../../lib/format';
 import { toast } from '../../components/Toaster';
 import { ArrowRight, HandCoins, Plus, Trash2, Users } from 'lucide-react';
@@ -130,6 +130,16 @@ export function SplitBalancesPage() {
           <Plus size={16} /> Shared expense
         </Link>
       </div>
+
+      {sharedGroups.length === 0 && members.length < 2 && (
+        <div className="bg-violet-50 border border-violet-200 rounded-2xl p-4 text-sm">
+          <p className="font-medium text-violet-900 mb-1">Want to split money with someone?</p>
+          <p className="text-violet-700">
+            Open <Link to="/share" className="underline font-medium">Share</Link>, invite their username, and check{' '}
+            <strong>Money split</strong> under Money. Then log shared expenses on Expenses.
+          </p>
+        </div>
+      )}
 
       {sharedGroups.map((group) => (
         <section key={group.spaceId} className="bg-violet-50 border border-violet-200 rounded-2xl p-5 space-y-4">

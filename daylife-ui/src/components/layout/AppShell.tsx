@@ -1,16 +1,14 @@
 import React, { useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../features/auth/AuthContext';
 import { useGitHubSync } from '../../features/sync/GitHubSyncContext';
-import { api, User, Connection } from '../../lib/api';
+import { api } from '../../lib/api';
 import { DayPicker } from '../DayPicker';
 import { InstallAppBanner } from '../InstallAppBanner';
 import {
   LayoutDashboard, CheckSquare, Receipt, Briefcase, Home, Settings,
   Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star, HandCoins, Users,
 } from 'lucide-react';
-import { supportsExpenseSplits } from '../../lib/household';
 
 const baseNavItems = [
   { path: '/', label: 'Today', icon: LayoutDashboard },
@@ -19,7 +17,7 @@ const baseNavItems = [
   { path: '/daily', label: 'Daily life', icon: Sparkles },
   { path: '/vision', label: 'Vision board', icon: Star },
   { path: '/expenses', label: 'Expenses', icon: Receipt },
-  { path: '/splits', label: 'Split money', icon: HandCoins, splitOnly: true },
+  { path: '/splits', label: 'Split money', icon: HandCoins },
   { path: '/reports', label: 'Reports', icon: BarChart3 },
   { path: '/work', label: 'Work', icon: Briefcase },
   { path: '/home', label: 'Home', icon: Home },
@@ -39,23 +37,7 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobileAddOpen, setMobileAddOpen] = useState(false);
 
-  const { data: allMembers = [] } = useQuery<User[]>({
-    queryKey: ['users'],
-    queryFn: () => api.get('/users'),
-  });
-
-  const { data: connections = [] } = useQuery<Connection[]>({
-    queryKey: ['connections'],
-    queryFn: () => api.get('/connections'),
-  });
-
-  const hasSharedSplits = connections.some(
-    (c) => c.status === 'active' && c.features.includes('splits'),
-  );
-
-  const navItems = baseNavItems.filter(
-    (item) => !item.splitOnly || supportsExpenseSplits(allMembers.length) || hasSharedSplits,
-  );
+  const navItems = baseNavItems;
 
   const NavLink = ({ item, onClick }: { item: typeof baseNavItems[0]; onClick?: () => void }) => {
     const Icon = item.icon;
