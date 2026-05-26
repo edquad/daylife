@@ -1,18 +1,21 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Mic, MicOff, Loader2, Sparkles, X } from 'lucide-react';
+import { Mic, Loader2, Sparkles, X, Keyboard } from 'lucide-react';
 import { useAuth } from '../features/auth/AuthContext';
 import { toast } from './Toaster';
 import { cn } from '../lib/utils';
 import { parseVoiceTranscript, describeVoiceAction, VOICE_HINTS, type VoiceAction } from '../lib/voiceCommands';
 import { executeVoiceActions, voiceQueryKeysToInvalidate } from '../lib/executeVoiceCommands';
+import {
+  collectTranscript,
+  getSpeechRecognitionCtor,
+  isIOSDevice,
+  isVoiceInputSupported,
+  requestMicrophoneAccess,
+  speechErrorMessage,
+} from '../lib/speechRecognition';
 
 type VoiceState = 'idle' | 'listening' | 'processing';
-
-function getSpeechRecognition(): (new () => SpeechRecognition) | null {
-  if (typeof window === 'undefined') return null;
-  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
-}
 
 interface VoiceAssistantSheetProps {
   open: boolean;
@@ -24,30 +27,38 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
   const queryClient = useQueryClient();
   const [state, setState] = useState<VoiceState>('idle');
   const [transcript, setTranscript] = useState('');
+  const [typed, setTyped] = useState('');
   const [preview, setPreview] = useState<VoiceAction[]>([]);
-  const [supported, setSupported] = useState(true);
+  const [statusLine, setStatusLine] = useState('');
+  const [voiceSupported] = useState(isVoiceInputSupported());
+  const [onIOS] = useState(isIOSDevice());
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-
-  useEffect(() => {
-    setSupported(Boolean(getSpeechRecognition()));
-  }, []);
+  const transcriptRef = useRef('');
+  const holdingRef = useRef(false);
+  const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!open) {
       recognitionRef.current?.abort();
+      holdingRef.current = false;
+      if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
       setState('idle');
       setTranscript('');
+      setTyped('');
       setPreview([]);
+      setStatusLine('');
     }
   }, [open]);
 
   const runActions = useCallback(
     async (actions: VoiceAction[]) => {
       if (!user?.id || actions.length === 0) {
-        toast.error('Could not understand — try again');
+        setStatusLine('Could not understand — see examples below');
+        setState('idle');
         return;
       }
       setState('processing');
+      setStatusLine('Adding…');
       const result = await executeVoiceActions(actions, user.id);
       voiceQueryKeysToInvalidate().forEach((key) => {
         queryClient.invalidateQueries({ queryKey: key });
@@ -58,87 +69,130 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
         onClose();
       }
       if (result.failed.length > 0) {
-        toast.error(`Could not add: ${result.failed.join(', ')}`);
+        setStatusLine(`Could not add: ${result.failed.join(', ')}`);
+        toast.error('Some items could not be added');
       }
       if (result.ok.length === 0 && result.failed.length === 0) {
-        toast.error('Nothing to add — check your words');
+        setStatusLine('Nothing matched — try "task buy milk"');
       }
     },
     [user?.id, queryClient, onClose],
   );
 
-  const handleTranscript = useCallback(
+  const submitText = useCallback(
     (text: string) => {
-      setTranscript(text);
-      const actions = parseVoiceTranscript(text);
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      setTranscript(trimmed);
+      const actions = parseVoiceTranscript(trimmed);
       setPreview(actions);
       if (actions.length > 0) {
         void runActions(actions);
-      } else if (text.trim()) {
-        toast.error('Try: "task buy milk" or "spent 15 on coffee"');
+      } else {
+        setStatusLine('Try: "task buy milk" or "spent 15 on coffee"');
         setState('idle');
       }
     },
     [runActions],
   );
 
-  const startListening = useCallback(() => {
-    const SpeechCtor = getSpeechRecognition();
+  const finishListening = useCallback(() => {
+    if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+    stopTimerRef.current = setTimeout(() => {
+      const text = transcriptRef.current.trim();
+      holdingRef.current = false;
+      if (text) {
+        submitText(text);
+      } else {
+        setState('idle');
+        setStatusLine('No speech heard — hold mic and try again');
+      }
+    }, 400);
+  }, [submitText]);
+
+  const stopRecognition = useCallback(() => {
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const startListening = useCallback(async () => {
+    const SpeechCtor = getSpeechRecognitionCtor();
     if (!SpeechCtor) {
-      toast.error('Voice not supported in this browser — try Chrome');
+      setStatusLine('Use the text box below — voice is not supported on iPhone');
       return;
     }
 
     recognitionRef.current?.abort();
+    setState('processing');
+    setStatusLine('Allow microphone if asked…');
+    setTranscript('');
+    setPreview([]);
+    transcriptRef.current = '';
+
+    const mic = await requestMicrophoneAccess();
+    if (mic === 'denied') {
+      setState('idle');
+      setStatusLine('Microphone blocked — enable in phone Settings, or type below');
+      toast.error('Allow microphone access');
+      return;
+    }
+
     const recognition = new SpeechCtor();
     recognition.lang = 'en-US';
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognitionRef.current = recognition;
 
-    let finalText = '';
+    recognition.onstart = () => {
+      setState('listening');
+      setStatusLine('Listening… speak now');
+    };
 
     recognition.onresult = (event) => {
-      let interim = '';
-      for (let i = event.results.length - 1; i >= 0; i--) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          finalText = result[0].transcript;
-        } else {
-          interim = result[0].transcript;
-        }
-      }
-      setTranscript(finalText || interim);
+      const text = collectTranscript(event);
+      transcriptRef.current = text;
+      setTranscript(text);
     };
 
     recognition.onerror = (event) => {
-      if (event.error !== 'aborted') {
-        toast.error(event.error === 'not-allowed' ? 'Allow microphone access' : 'Voice failed — try again');
+      const msg = speechErrorMessage(event.error);
+      if (msg) {
+        setStatusLine(msg);
+        toast.error(msg);
       }
+      holdingRef.current = false;
       setState('idle');
     };
 
     recognition.onend = () => {
-      if (finalText.trim()) {
-        handleTranscript(finalText);
-      } else {
-        setState('idle');
-      }
+      if (holdingRef.current) return;
+      finishListening();
     };
 
     try {
       recognition.start();
-      setState('listening');
-      setTranscript('');
-      setPreview([]);
     } catch {
-      toast.error('Could not start microphone');
       setState('idle');
+      setStatusLine('Could not start mic — type below instead');
+      toast.error('Could not start microphone');
     }
-  }, [handleTranscript]);
+  }, [finishListening]);
 
-  const stopListening = () => {
-    recognitionRef.current?.stop();
+  const handleHoldStart = (e: React.PointerEvent) => {
+    e.preventDefault();
+    if (state === 'processing') return;
+    holdingRef.current = true;
+    void startListening();
+  };
+
+  const handleHoldEnd = () => {
+    if (!holdingRef.current && state !== 'listening') return;
+    holdingRef.current = false;
+    stopRecognition();
+    finishListening();
   };
 
   if (!open) return null;
@@ -146,53 +200,55 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
       <div className="fixed inset-0 bg-black/50" onClick={onClose} aria-hidden />
-      <div className="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-xl z-10 mx-0 sm:mx-4 overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b">
+      <div className="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-xl z-10 mx-0 sm:mx-4 overflow-hidden max-h-[90dvh] overflow-y-auto">
+        <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 bg-white">
           <h2 className="font-semibold flex items-center gap-2">
-            <Sparkles size={18} className="text-brand-600" /> Voice add
+            <Sparkles size={18} className="text-brand-600" /> Quick add
           </h2>
-          <button type="button" onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600">
+          <button type="button" onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 touch-manipulation">
             <X size={20} />
           </button>
         </div>
 
-        <div className="p-6 text-center">
-          {!supported ? (
-            <p className="text-sm text-gray-600">
-              Voice works best in Chrome on Android or desktop. Type in the task box if voice is unavailable.
-            </p>
-          ) : (
-            <>
+        <div className="p-5">
+          {onIOS && (
+            <div className="mb-4 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+              iPhone does not support voice in the browser. Type below — same smart add.
+            </div>
+          )}
+
+          {voiceSupported && (
+            <div className="text-center mb-5">
               <button
                 type="button"
-                onClick={state === 'listening' ? stopListening : startListening}
+                onPointerDown={handleHoldStart}
+                onPointerUp={handleHoldEnd}
+                onPointerLeave={handleHoldEnd}
+                onPointerCancel={handleHoldEnd}
                 disabled={state === 'processing'}
                 className={cn(
-                  'w-20 h-20 rounded-full mx-auto flex items-center justify-center text-white shadow-lg transition-all touch-manipulation',
+                  'w-24 h-24 rounded-full mx-auto flex items-center justify-center text-white shadow-lg transition-all touch-manipulation select-none',
                   state === 'listening'
-                    ? 'bg-red-500 animate-pulse scale-105'
+                    ? 'bg-red-500 scale-110 ring-4 ring-red-200'
                     : state === 'processing'
                       ? 'bg-gray-400'
-                      : 'bg-brand-600 hover:bg-brand-700 active:scale-95',
+                      : 'bg-violet-600 active:scale-95 active:bg-violet-700',
                 )}
               >
                 {state === 'processing' ? (
-                  <Loader2 size={32} className="animate-spin" />
-                ) : state === 'listening' ? (
-                  <MicOff size={32} />
+                  <Loader2 size={36} className="animate-spin" />
                 ) : (
-                  <Mic size={32} />
+                  <Mic size={36} />
                 )}
               </button>
-              <p className="mt-4 text-sm font-medium text-gray-800">
-                {state === 'listening'
-                  ? 'Listening… tap to stop'
-                  : state === 'processing'
-                    ? 'Adding…'
-                    : 'Tap mic and speak'}
+              <p className="mt-3 text-sm font-semibold text-gray-900">
+                {state === 'listening' ? 'Release when done' : 'Hold to speak'}
               </p>
               {transcript && (
-                <p className="mt-2 text-sm text-gray-500 italic">&ldquo;{transcript}&rdquo;</p>
+                <p className="mt-2 text-sm text-gray-600 italic px-2">&ldquo;{transcript}&rdquo;</p>
+              )}
+              {statusLine && (
+                <p className="mt-2 text-xs text-gray-500 px-2">{statusLine}</p>
               )}
               {preview.length > 0 && state === 'processing' && (
                 <ul className="mt-3 text-left text-sm space-y-1">
@@ -203,18 +259,63 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                   ))}
                 </ul>
               )}
-            </>
+            </div>
           )}
 
-          <div className="mt-6 text-left">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Try saying</p>
-            <ul className="space-y-1.5">
+          <div className={voiceSupported ? 'border-t pt-4' : ''}>
+            <p className="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
+              <Keyboard size={14} /> {voiceSupported ? 'Or type' : 'Type to add'}
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    submitText(typed);
+                    setTyped('');
+                  }
+                }}
+                placeholder="task buy milk"
+                className="flex-1 px-3 py-3 border rounded-xl text-base outline-none focus:ring-2 focus:ring-brand-500"
+                autoComplete="off"
+                enterKeyHint="done"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  submitText(typed);
+                  setTyped('');
+                }}
+                disabled={!typed.trim() || state === 'processing'}
+                className="px-4 py-3 bg-brand-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 touch-manipulation shrink-0"
+              >
+                Add
+              </button>
+            </div>
+            {!voiceSupported && statusLine && (
+              <p className="mt-2 text-xs text-gray-500">{statusLine}</p>
+            )}
+          </div>
+
+          <div className="mt-4">
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Examples</p>
+            <div className="flex flex-wrap gap-1.5">
               {VOICE_HINTS.slice(0, 4).map((hint) => (
-                <li key={hint} className="text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
-                  &ldquo;{hint}&rdquo;
-                </li>
+                <button
+                  key={hint}
+                  type="button"
+                  onClick={() => {
+                    setTyped(hint);
+                    submitText(hint);
+                  }}
+                  className="text-xs text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-full px-3 py-1.5 touch-manipulation"
+                >
+                  {hint}
+                </button>
               ))}
-            </ul>
+            </div>
           </div>
         </div>
       </div>
@@ -235,7 +336,7 @@ export function VoiceMicButton({ onClick, className, size = 'md' }: VoiceMicButt
     <button
       type="button"
       onClick={onClick}
-      title="Voice add — task, expense, shopping"
+      title="Quick add — voice or type"
       className={cn(
         dims,
         'rounded-full bg-violet-600 text-white flex items-center justify-center shadow-md hover:bg-violet-700 active:scale-95 touch-manipulation',
