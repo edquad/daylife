@@ -16,6 +16,15 @@ import type { HouseholdType } from './household';
 const STORAGE_KEY = 'daylife_data';
 const SESSION_KEY = 'daylife_session';
 
+/** Windows editors sometimes save JSON with a UTF-8 BOM, which breaks JSON.parse. */
+export function sanitizeJsonText(text: string): string {
+  return text.replace(/^\uFEFF/, '').trim();
+}
+
+export function parseJsonText<T>(text: string): T {
+  return JSON.parse(sanitizeJsonText(text)) as T;
+}
+
 export interface AppData {
   users: User[];
   tasks: Task[];
@@ -124,7 +133,7 @@ export function loadData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return emptyData();
-    const parsed = JSON.parse(raw) as AppData;
+    const parsed = parseJsonText<AppData>(raw);
     const merged = normalizeAppData(parsed);
     if (merged.householdType !== parsed.householdType) {
       saveDataLocal(merged);
@@ -177,7 +186,7 @@ export function exportData(): string {
 }
 
 export function importData(json: string): void {
-  const parsed = JSON.parse(json) as AppData;
+  const parsed = parseJsonText<AppData>(json);
   if (!parsed.users || !Array.isArray(parsed.tasks)) {
     throw new Error('Invalid backup file');
   }

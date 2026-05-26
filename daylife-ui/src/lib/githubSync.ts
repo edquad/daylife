@@ -1,5 +1,5 @@
 import type { AppData } from './storage';
-import { loadData, saveDataLocal, normalizeAppData } from './storage';
+import { loadData, saveDataLocal, normalizeAppData, parseJsonText } from './storage';
 
 const CONFIG_KEY = 'daylife_github_sync';
 
@@ -38,7 +38,7 @@ export function loadGitHubConfig(): GitHubSyncConfig {
   let meta: StoredSyncMeta = {};
   try {
     const raw = localStorage.getItem(CONFIG_KEY);
-    if (raw) meta = JSON.parse(raw) as StoredSyncMeta;
+    if (raw) meta = parseJsonText<StoredSyncMeta>(raw);
   } catch {
     /* ignore */
   }
@@ -95,7 +95,12 @@ export async function fetchFromGitHub(config: GitHubSyncConfig): Promise<RemoteF
     throw new Error(res.status === 401 ? 'Cloud sync auth failed' : `Could not read cloud data (${res.status})`);
   }
   const json = await res.json();
-  const parsed = JSON.parse(decodeBase64Utf8(json.content)) as AppData;
+  let parsed: AppData;
+  try {
+    parsed = parseJsonText<AppData>(decodeBase64Utf8(json.content));
+  } catch {
+    throw new Error('Cloud backup file is corrupted — try exporting locally and re-importing');
+  }
   return { data: normalizeAppData(parsed), sha: json.sha as string };
 }
 
