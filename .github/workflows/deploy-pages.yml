@@ -37,6 +37,7 @@ jobs:
         env:
           GITHUB_PAGES: 'true'
           REPO_NAME: ${{ github.event.repository.name }}
+          VITE_GITHUB_SYNC_TOKEN: ${{ secrets.DAYLIFE_SYNC_TOKEN }}
 
       - uses: actions/upload-pages-artifact@v3
         with:

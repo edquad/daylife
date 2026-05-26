@@ -29,7 +29,7 @@ const mobileBottomNav = [
 
 export function AppShell() {
   const { user, members, switchUser, logout } = useAuth();
-  const { status, statusMessage, config } = useGitHubSync();
+  const { status, statusMessage, cloudReady } = useGitHubSync();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobileAddOpen, setMobileAddOpen] = useState(false);
@@ -116,7 +116,7 @@ export function AppShell() {
               <DayPicker compact />
             </div>
             <div className="flex-1" />
-            {config.enabled && (
+            {cloudReady && (
               <Link
                 to="/settings"
                 title={statusMessage || 'Cloud sync'}
@@ -130,6 +130,11 @@ export function AppShell() {
                   status === 'error' ? <CloudOff size={14} /> : <Cloud size={14} />}
                 GitHub
               </Link>
+            )}
+            {!cloudReady && (
+              <span className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs text-gray-400 shrink-0" title="Redeploy app to enable cloud">
+                <CloudOff size={14} /> Offline
+              </span>
             )}
             <div className="flex-1 min-w-0 overflow-x-auto">
               <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 min-w-max">

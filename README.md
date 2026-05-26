@@ -35,18 +35,18 @@ Open **http://localhost:5174**
 2. Tap your name to sign in
 3. Start adding tasks & expenses
 
-## Cloud save on GitHub (free)
+## Cloud save (automatic)
 
-Your tasks, expenses, shopping list, etc. can sync to a **private GitHub repo** as `data/daylife.json`.
+Your data **always syncs** to a private GitHub repo — no setup in the app.
 
-1. Create private repo `daylife-data` on GitHub
-2. Create a [Personal Access Token](https://github.com/settings/tokens) with **repo** scope
-3. In DayLife → **Settings → GitHub cloud save** — enter username, repo, token
-4. Use the **same settings** on your partner's phone for shared data
+| What | Where |
+|------|--------|
+| App | [edquad.github.io/daylife](https://edquad.github.io/daylife/) |
+| Your data | [github.com/edquad/daylife-data](https://github.com/edquad/daylife-data) → `data/daylife.json` |
 
-**Cost: $0** (GitHub free for private repos)
+Open the app on phone or laptop — same data everywhere. Changes save automatically.
 
-**Do not paste your token in chat** — only enter it in Settings on your device.
+Local dev: add `daylife-ui/.env.local` with `VITE_GITHUB_SYNC_TOKEN=your_token` (optional).
 
 ## Deploy free on GitHub Pages
 

@@ -4,8 +4,6 @@ import { useAuth } from '../auth/AuthContext';
 import { useGitHubSync } from '../sync/GitHubSyncContext';
 import { api, User, HouseholdInfo } from '../../lib/api';
 import { exportData, importData } from '../../lib/storage';
-import type { GitHubSyncConfig } from '../../lib/githubSync';
-import { testGitHubConnection } from '../../lib/githubSync';
 import {
   HOUSEHOLD_TYPE_LABELS,
   roleLabel,
@@ -17,24 +15,12 @@ import { Heart, Download, Upload, Trash2, UserPlus, LogOut, Cloud, RefreshCw } f
 
 export function SettingsPage() {
   const { user, logout } = useAuth();
-  const { config, status, statusMessage, saveConfig, pullFromGitHub, syncToGitHub } = useGitHubSync();
+  const { config, status, statusMessage, cloudReady, pullFromGitHub, syncToGitHub } = useGitHubSync();
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(user?.name || '');
   const [color, setColor] = useState(user?.color || '#0F766E');
   const [newMemberName, setNewMemberName] = useState('');
-  const [ghOwner, setGhOwner] = useState(config.owner);
-  const [ghRepo, setGhRepo] = useState(config.repo);
-  const [ghToken, setGhToken] = useState(config.token);
-  const [ghEnabled, setGhEnabled] = useState(config.enabled);
-  const [ghBusy, setGhBusy] = useState(false);
-
-  React.useEffect(() => {
-    setGhOwner(config.owner);
-    setGhRepo(config.repo);
-    setGhToken(config.token);
-    setGhEnabled(config.enabled);
-  }, [config]);
 
   const { data: household } = useQuery<HouseholdInfo>({
     queryKey: ['household'],
@@ -119,40 +105,11 @@ export function SettingsPage() {
     logout();
   };
 
-  const buildGhConfig = (): GitHubSyncConfig => ({
-    ...config,
-    enabled: ghEnabled,
-    owner: ghOwner.trim(),
-    repo: ghRepo.trim() || 'daylife-data',
-    token: ghToken.trim(),
-    branch: config.branch || 'main',
-    path: config.path || 'data/daylife.json',
-  });
-
-  const handleSaveGitHub = async () => {
-    setGhBusy(true);
-    try {
-      const next = buildGhConfig();
-      await testGitHubConnection(next);
-      saveConfig(next);
-      if (next.enabled) {
-        await syncToGitHub();
-        toast.success('GitHub cloud save enabled');
-      } else {
-        toast.success('GitHub settings saved');
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'GitHub setup failed');
-    } finally {
-      setGhBusy(false);
-    }
-  };
-
   return (
     <div className="p-4 lg:p-6 max-w-2xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-gray-500 text-sm">Local storage + optional free GitHub cloud sync</p>
+        <p className="text-gray-500 text-sm">Your data saves to the cloud automatically</p>
       </div>
 
       <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-3">
@@ -247,68 +204,39 @@ export function SettingsPage() {
 
       <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
         <h2 className="font-semibold flex items-center gap-2">
-          <Cloud size={18} className="text-brand-600" /> GitHub cloud save (free)
+          <Cloud size={18} className="text-brand-600" /> Cloud save
         </h2>
         <p className="text-sm text-gray-500">
-          Stores your household data as a private JSON file in a GitHub repo. Same repo on phone + laptop = shared data.
-          Your token stays on this device only — never share it in chat.
+          Always on — tasks, expenses, shopping & more sync to{' '}
+          <a
+            href={`https://github.com/${config.owner}/${config.repo}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-brand-600 hover:underline"
+          >
+            {config.owner}/{config.repo}
+          </a>
+          . Open the app on any device and your data is there.
         </p>
-
-        <ol className="text-sm text-gray-600 list-decimal list-inside space-y-1 bg-gray-50 rounded-xl p-4">
-          <li>Create a <strong>private</strong> repo on GitHub (e.g. <code className="text-xs bg-white px-1 rounded">daylife-data</code>)</li>
-          <li>GitHub → Settings → Developer settings → <strong>Personal access tokens</strong></li>
-          <li>Create token with <strong>repo</strong> access (classic token is fine)</li>
-          <li>Enter details below and enable sync</li>
-        </ol>
-
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={ghEnabled} onChange={(e) => setGhEnabled(e.target.checked)} />
-          Enable GitHub cloud save
-        </label>
-
-        <div className="grid sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">GitHub username</label>
-            <input value={ghOwner} onChange={(e) => setGhOwner(e.target.value)} placeholder="your-username"
-              className="w-full px-3 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-500" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Data repo name</label>
-            <input value={ghRepo} onChange={(e) => setGhRepo(e.target.value)} placeholder="daylife-data"
-              className="w-full px-3 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-500" />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">Personal access token</label>
-          <input type="password" value={ghToken} onChange={(e) => setGhToken(e.target.value)} placeholder="ghp_..."
-            className="w-full px-3 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-500" />
-        </div>
-
-        {config.enabled && (
-          <p className={`text-xs ${status === 'error' ? 'text-red-600' : 'text-gray-500'}`}>
-            Status: {statusMessage || status}
-            {config.lastSyncedAt && ` · Last sync ${new Date(config.lastSyncedAt).toLocaleString()}`}
-          </p>
-        )}
-
+        <p className={`text-sm ${status === 'error' ? 'text-red-600' : 'text-green-700'}`}>
+          {statusMessage || (cloudReady ? 'Synced' : 'Waiting for cloud connection')}
+          {config.lastSyncedAt && ` · Last sync ${new Date(config.lastSyncedAt).toLocaleString()}`}
+        </p>
         <div className="flex flex-wrap gap-2">
-          <button onClick={handleSaveGitHub} disabled={ghBusy}
-            className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50">
-            {ghBusy ? 'Saving…' : 'Save & sync'}
+          <button
+            onClick={() => syncToGitHub().then(() => toast.success('Synced')).catch((e) => toast.error(e.message))}
+            disabled={!cloudReady}
+            className="flex items-center gap-1 px-4 py-2 border rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw size={14} /> Sync now
           </button>
-          {config.enabled && (
-            <>
-              <button onClick={() => syncToGitHub().then(() => toast.success('Synced')).catch((e) => toast.error(e.message))}
-                className="flex items-center gap-1 px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">
-                <RefreshCw size={14} /> Sync now
-              </button>
-              <button onClick={() => pullFromGitHub().then(() => toast.success('Pulled from GitHub')).catch((e) => toast.error(e.message))}
-                className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">
-                Pull from GitHub
-              </button>
-            </>
-          )}
+          <button
+            onClick={() => pullFromGitHub().then(() => toast.success('Updated from cloud')).catch((e) => toast.error(e.message))}
+            disabled={!cloudReady}
+            className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
+          >
+            Refresh from cloud
+          </button>
         </div>
       </section>
 

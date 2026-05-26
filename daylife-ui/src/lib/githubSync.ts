@@ -3,6 +3,15 @@ import { loadData, saveDataLocal, normalizeAppData } from './storage';
 
 const CONFIG_KEY = 'daylife_github_sync';
 
+/** Built-in cloud storage — always on, no user setup. */
+const CLOUD = {
+  enabled: true,
+  owner: 'edquad',
+  repo: 'daylife-data',
+  branch: 'main',
+  path: 'data/daylife.json',
+} as const;
+
 export interface GitHubSyncConfig {
   enabled: boolean;
   owner: string;
@@ -16,30 +25,41 @@ export interface GitHubSyncConfig {
 
 export type SyncStatus = 'off' | 'idle' | 'syncing' | 'synced' | 'error';
 
-export function loadGitHubConfig(): GitHubSyncConfig {
-  const defaults: GitHubSyncConfig = {
-    enabled: false,
-    owner: 'edquad',
-    repo: 'daylife-data',
-    branch: 'main',
-    path: 'data/daylife.json',
-    token: '',
-  };
-  try {
-    const raw = localStorage.getItem(CONFIG_KEY);
-    if (!raw) return defaults;
-    return { ...defaults, ...JSON.parse(raw) };
-  } catch {
-    return defaults;
-  }
+interface StoredSyncMeta {
+  lastSyncedAt?: string;
+  lastSha?: string;
 }
 
-export function saveGitHubConfig(config: GitHubSyncConfig): void {
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+function resolveToken(): string {
+  return import.meta.env.VITE_GITHUB_SYNC_TOKEN?.trim() || '';
+}
+
+export function loadGitHubConfig(): GitHubSyncConfig {
+  let meta: StoredSyncMeta = {};
+  try {
+    const raw = localStorage.getItem(CONFIG_KEY);
+    if (raw) meta = JSON.parse(raw) as StoredSyncMeta;
+  } catch {
+    /* ignore */
+  }
+  return {
+    ...CLOUD,
+    enabled: true,
+    token: resolveToken(),
+    lastSyncedAt: meta.lastSyncedAt,
+    lastSha: meta.lastSha,
+  };
+}
+
+export function saveGitHubConfig(config: Pick<GitHubSyncConfig, 'lastSyncedAt' | 'lastSha'>): void {
+  localStorage.setItem(
+    CONFIG_KEY,
+    JSON.stringify({ lastSyncedAt: config.lastSyncedAt, lastSha: config.lastSha }),
+  );
 }
 
 export function isGitHubConfigured(config: GitHubSyncConfig): boolean {
-  return Boolean(config.enabled && config.owner.trim() && config.repo.trim() && config.token.trim());
+  return Boolean(config.token.trim() && config.owner.trim() && config.repo.trim());
 }
 
 function encodeBase64Utf8(str: string): string {
@@ -58,15 +78,6 @@ function authHeaders(token: string): HeadersInit {
   };
 }
 
-export async function testGitHubConnection(config: GitHubSyncConfig): Promise<void> {
-  const url = `https://api.github.com/repos/${config.owner.trim()}/${config.repo.trim()}`;
-  const res = await fetch(url, { headers: authHeaders(config.token) });
-  if (!res.ok) {
-    const msg = res.status === 401 ? 'Invalid token' : res.status === 404 ? 'Repo not found — create it first (private is OK)' : `GitHub error ${res.status}`;
-    throw new Error(msg);
-  }
-}
-
 interface RemoteFile {
   data: AppData;
   sha: string;
@@ -81,7 +92,7 @@ export async function fetchFromGitHub(config: GitHubSyncConfig): Promise<RemoteF
   const res = await fetch(url, { headers: authHeaders(config.token) });
   if (res.status === 404) return null;
   if (!res.ok) {
-    throw new Error(res.status === 401 ? 'Invalid GitHub token' : `Could not read data (${res.status})`);
+    throw new Error(res.status === 401 ? 'Cloud sync auth failed' : `Could not read cloud data (${res.status})`);
   }
   const json = await res.json();
   const parsed = JSON.parse(decodeBase64Utf8(json.content)) as AppData;
@@ -109,8 +120,13 @@ export async function pushToGitHub(config: GitHubSyncConfig, data: AppData, sha?
   });
 
   if (!res.ok) {
-    if (res.status === 409) throw new Error('Sync conflict — tap Pull from GitHub first');
-    throw new Error(res.status === 401 ? 'Invalid GitHub token' : `Could not save data (${res.status})`);
+    if (res.status === 409) {
+      const remote = await fetchFromGitHub(config);
+      if (remote) {
+        return pushToGitHub(config, data, remote.sha);
+      }
+    }
+    throw new Error(res.status === 401 ? 'Cloud sync auth failed' : `Could not save cloud data (${res.status})`);
   }
 
   const json = await res.json();
@@ -134,13 +150,7 @@ export async function pullAndMerge(config: GitHubSyncConfig): Promise<'local' | 
     saveDataLocal(remote.data);
   }
 
-  const updatedConfig: GitHubSyncConfig = {
-    ...config,
-    lastSha: remote.sha,
-    lastSyncedAt: new Date().toISOString(),
-  };
-  saveGitHubConfig(updatedConfig);
-
+  saveGitHubConfig({ lastSha: remote.sha, lastSyncedAt: new Date().toISOString() });
   return winner;
 }
 
@@ -150,19 +160,19 @@ export async function syncNow(config: GitHubSyncConfig): Promise<void> {
 
   if (!remote) {
     const sha = await pushToGitHub(config, local);
-    saveGitHubConfig({ ...config, lastSha: sha, lastSyncedAt: new Date().toISOString() });
+    saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
     return;
   }
 
   const winner = pickNewerData(local, remote.data);
   if (winner === 'remote') {
     saveDataLocal(remote.data);
-    saveGitHubConfig({ ...config, lastSha: remote.sha, lastSyncedAt: new Date().toISOString() });
+    saveGitHubConfig({ lastSha: remote.sha, lastSyncedAt: new Date().toISOString() });
     return;
   }
 
   const sha = await pushToGitHub(config, local, remote.sha);
-  saveGitHubConfig({ ...config, lastSha: sha, lastSyncedAt: new Date().toISOString() });
+  saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
 }
 
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -178,7 +188,7 @@ export function scheduleGitHubPush(config: GitHubSyncConfig): void {
       const local = loadData();
       const cfg = loadGitHubConfig();
       const sha = await pushToGitHub(cfg, local, cfg.lastSha);
-      saveGitHubConfig({ ...cfg, lastSha: sha, lastSyncedAt: new Date().toISOString() });
+      saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
       window.dispatchEvent(new CustomEvent('daylife-sync', { detail: { status: 'synced' } }));
     } catch (err) {
       window.dispatchEvent(new CustomEvent('daylife-sync', { detail: { status: 'error', message: (err as Error).message } }));

@@ -4,9 +4,7 @@ import {
   GitHubSyncConfig,
   SyncStatus,
   loadGitHubConfig,
-  saveGitHubConfig,
   isGitHubConfigured,
-  testGitHubConnection,
   pullAndMerge,
   syncNow,
   scheduleGitHubPush,
@@ -17,8 +15,7 @@ interface GitHubSyncContextType {
   config: GitHubSyncConfig;
   status: SyncStatus;
   statusMessage: string;
-  saveConfig: (next: GitHubSyncConfig) => void;
-  testConnection: () => Promise<void>;
+  cloudReady: boolean;
   pullFromGitHub: () => Promise<void>;
   syncToGitHub: () => Promise<void>;
 }
@@ -28,55 +25,51 @@ const GitHubSyncContext = createContext<GitHubSyncContextType | null>(null);
 export function GitHubSyncProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [config, setConfig] = useState<GitHubSyncConfig>(loadGitHubConfig);
-  const [status, setStatus] = useState<SyncStatus>(config.enabled ? 'idle' : 'off');
-  const [statusMessage, setStatusMessage] = useState('');
+  const cloudReady = isGitHubConfigured(config);
+  const [status, setStatus] = useState<SyncStatus>(cloudReady ? 'syncing' : 'error');
+  const [statusMessage, setStatusMessage] = useState(
+    cloudReady ? 'Connecting to cloud…' : 'Cloud sync unavailable',
+  );
 
   const invalidateApp = useCallback(() => {
     queryClient.invalidateQueries();
   }, [queryClient]);
 
-  const saveConfig = useCallback((next: GitHubSyncConfig) => {
-    saveGitHubConfig(next);
-    setConfig(next);
-    setStatus(next.enabled ? 'idle' : 'off');
-  }, []);
-
   const pullFromGitHub = useCallback(async () => {
-    if (!isGitHubConfigured(config)) throw new Error('Set up GitHub sync first');
+    const cfg = loadGitHubConfig();
+    if (!isGitHubConfigured(cfg)) throw new Error('Cloud sync not available');
     setStatus('syncing');
-    setStatusMessage('Pulling from GitHub…');
+    setStatusMessage('Pulling from cloud…');
     try {
-      await pullAndMerge(config);
+      await pullAndMerge(cfg);
       invalidateApp();
+      setConfig(loadGitHubConfig());
       setStatus('synced');
-      setStatusMessage('Up to date with GitHub');
+      setStatusMessage('Up to date');
     } catch (err: any) {
       setStatus('error');
       setStatusMessage(err.message || 'Pull failed');
       throw err;
     }
-  }, [config, invalidateApp]);
+  }, [invalidateApp]);
 
   const syncToGitHub = useCallback(async () => {
-    if (!isGitHubConfigured(config)) throw new Error('Set up GitHub sync first');
+    const cfg = loadGitHubConfig();
+    if (!isGitHubConfigured(cfg)) throw new Error('Cloud sync not available');
     setStatus('syncing');
-    setStatusMessage('Syncing to GitHub…');
+    setStatusMessage('Saving to cloud…');
     try {
-      await syncNow(config);
+      await syncNow(cfg);
       invalidateApp();
       setConfig(loadGitHubConfig());
       setStatus('synced');
-      setStatusMessage('Saved to GitHub');
+      setStatusMessage('Saved to cloud');
     } catch (err: any) {
       setStatus('error');
       setStatusMessage(err.message || 'Sync failed');
       throw err;
     }
-  }, [config, invalidateApp]);
-
-  const testConnection = useCallback(async () => {
-    await testGitHubConnection(config);
-  }, [config]);
+  }, [invalidateApp]);
 
   useEffect(() => {
     registerDataSaveHook(() => scheduleGitHubPush(loadGitHubConfig()));
@@ -88,7 +81,7 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
       const detail = (e as CustomEvent).detail;
       if (detail?.status === 'synced') {
         setStatus('synced');
-        setStatusMessage('Saved to GitHub');
+        setStatusMessage('Saved to cloud');
         setConfig(loadGitHubConfig());
       }
       if (detail?.status === 'error') {
@@ -101,43 +94,49 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!isGitHubConfigured(config)) return;
+    const cfg = loadGitHubConfig();
+    setConfig(cfg);
+    if (!isGitHubConfigured(cfg)) {
+      setStatus('error');
+      setStatusMessage('Cloud sync unavailable');
+      return;
+    }
 
     let cancelled = false;
     (async () => {
       setStatus('syncing');
-      setStatusMessage('Loading cloud data…');
+      setStatusMessage('Loading your data…');
       try {
-        await pullAndMerge(config);
+        await syncNow(cfg);
         if (!cancelled) {
           invalidateApp();
           setConfig(loadGitHubConfig());
           setStatus('synced');
-          setStatusMessage('Synced with GitHub');
+          setStatusMessage('Synced — changes save automatically');
         }
       } catch (err: any) {
         if (!cancelled) {
           setStatus('error');
-          setStatusMessage(err.message || 'Could not load from GitHub');
+          setStatusMessage(err.message || 'Could not sync');
         }
       }
     })();
 
     return () => { cancelled = true; };
-  }, [config.enabled, config.owner, config.repo]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [invalidateApp]);
 
   useEffect(() => {
-    if (!isGitHubConfigured(config)) return;
+    if (!cloudReady) return;
     const onFocus = () => {
       pullFromGitHub().catch(() => undefined);
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [config, pullFromGitHub]);
+  }, [cloudReady, pullFromGitHub]);
 
   return (
     <GitHubSyncContext.Provider value={{
-      config, status, statusMessage, saveConfig, testConnection, pullFromGitHub, syncToGitHub,
+      config, status, statusMessage, cloudReady, pullFromGitHub, syncToGitHub,
     }}>
       {children}
     </GitHubSyncContext.Provider>
