@@ -18,6 +18,7 @@ import { usePwaInstall } from '../../hooks/usePwaInstall';
 import { AndroidInstallSteps, IosInstallSteps } from '../../components/InstallInstructions';
 import { PinModal } from '../../components/PinModal';
 import { ApiError } from '../../lib/api';
+import { forceAppRefresh } from '../../lib/appUpdate';
 
 export function SettingsPage() {
   const { user, logout, refreshUser } = useAuth();
@@ -296,9 +297,21 @@ export function SettingsPage() {
           <Smartphone size={18} className="text-brand-600" /> Phone app (free)
         </h2>
         {isStandalone ? (
-          <p className="text-sm text-green-700">
-            DayLife is installed on this device. Your data stays synced with the website via GitHub cloud save.
-          </p>
+          <div className="space-y-3">
+            <p className="text-sm text-green-700">
+              DayLife is installed on this device. Your data stays synced with the website via GitHub cloud save.
+            </p>
+            <p className="text-sm text-gray-500">
+              If you still see the old login (pick a name / household), the app cache is outdated. Tap below to load the latest version with username sign-in.
+            </p>
+            <button
+              type="button"
+              onClick={() => forceAppRefresh().catch(() => window.location.reload())}
+              className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50"
+            >
+              <RefreshCw size={16} /> Update app to latest version
+            </button>
+          </div>
         ) : (
           <>
             <p className="text-sm text-gray-500">

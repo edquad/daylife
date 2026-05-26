@@ -17,7 +17,7 @@ export default defineConfig({
       manifest: {
         name: 'DayLife — Daily life, together',
         short_name: 'DayLife',
-        description: 'Daily planner, tasks, expenses & vision board — synced for your household.',
+        description: 'Your personal daily planner — tasks, expenses & more, synced to the cloud.',
         theme_color: '#0F766E',
         background_color: '#F9FAFB',
         display: 'standalone',
@@ -46,6 +46,16 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         navigateFallback: `${appScope}index.html`.replace(/\/+/g, '/'),
+        runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'daylife-pages',
+              networkTimeoutSeconds: 5,
+            },
+          },
+        ],
       },
     }),
   ],

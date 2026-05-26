@@ -166,6 +166,9 @@ export function LoginPage() {
           <p className="text-xs text-gray-400 text-center mt-6">
             Your account is yours alone — tasks, notes & expenses sync to your own cloud space.
           </p>
+          <p className="text-xs text-gray-400 text-center mt-2">
+            Still see old login? Open in browser and reinstall, or tap Update when the banner appears.
+          </p>
         </div>
       </div>
     </div>

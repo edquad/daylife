@@ -20,6 +20,7 @@ import { ConnectionsPage } from './features/connections/ConnectionsPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { NotFoundPage } from './components/NotFoundPage';
 import { Toaster } from './components/Toaster';
+import { AppUpdateBanner } from './components/AppUpdateBanner';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -55,6 +56,7 @@ export default function App() {
       <GitHubSyncProvider>
         <AuthProvider>
           <BrowserRouter basename={routerBasename}>
+          <AppUpdateBanner />
           <Toaster />
           <Routes>
             <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
