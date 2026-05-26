@@ -11,6 +11,7 @@ import {
 } from '../../lib/githubSync';
 import { registerDataSaveHook, isFreshSignupInProgress } from '../../lib/storage';
 import { getActiveAccountId } from '../../lib/accounts';
+import { api } from '../../lib/api';
 
 function friendlySyncError(err: unknown): string {
   const msg = (err as Error)?.message || 'Could not sync';
@@ -138,6 +139,13 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
       try {
         await syncNow(cfg);
         if (!cancelled) {
+          if (api.getToken()) {
+            try {
+              await api.post('/connections/sync-inbox');
+            } catch {
+              /* best effort */
+            }
+          }
           invalidateApp();
           setConfig(loadGitHubConfig());
           setStatus('synced');

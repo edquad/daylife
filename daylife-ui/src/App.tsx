@@ -16,6 +16,7 @@ import { VisionBoardPage } from './features/vision/VisionBoardPage';
 import { WorkPage } from './features/work/WorkPage';
 import { HomePage } from './features/home/HomePage';
 import { SettingsPage } from './features/settings/SettingsPage';
+import { ConnectionsPage } from './features/connections/ConnectionsPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { NotFoundPage } from './components/NotFoundPage';
 import { Toaster } from './components/Toaster';
@@ -67,6 +68,7 @@ export default function App() {
               <Route path="vision" element={<ErrorBoundary><VisionBoardPage /></ErrorBoundary>} />
               <Route path="work" element={<ErrorBoundary><WorkPage /></ErrorBoundary>} />
               <Route path="home" element={<ErrorBoundary><HomePage /></ErrorBoundary>} />
+              <Route path="share" element={<ErrorBoundary><ConnectionsPage /></ErrorBoundary>} />
               <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>

@@ -7,6 +7,7 @@ import { useDateStore } from '../../lib/dateStore';
 import { formatDayHeading, formatMoney, todayISO } from '../../lib/format';
 import { DayPicker } from '../../components/DayPicker';
 import { PersonDayColumn } from '../../components/PersonDayColumn';
+import { SharedDayColumn } from '../../components/SharedDayColumn';
 import { VisibilityToggle } from '../../components/VisibilityToggle';
 import { defaultVisibility } from '../../lib/privacy';
 import type { ItemVisibility } from '../../lib/privacy';
@@ -68,6 +69,13 @@ export function DashboardPage() {
     queryKey: ['vision-board', 'preview'],
     queryFn: () => api.get('/vision-board?achieved=false'),
   });
+
+  const { data: sharedSummary } = useQuery<{ columns: Array<{ spaceId: string; partnerName: string; partnerUsername: string; tasks: Task[] }> }>({
+    queryKey: ['shared-summary', selectedDate],
+    queryFn: () => api.get(`/shared/summary?date=${selectedDate}`),
+  });
+
+  const sharedColumns = sharedSummary?.columns ?? [];
 
   const addNote = useMutation({
     mutationFn: (payload: { content: string; visibility: ItemVisibility }) =>
@@ -270,7 +278,7 @@ export function DashboardPage() {
         </section>
       )}
 
-      <div className={memberGridClass(members.length)}>
+      <div className={memberGridClass(members.length + sharedColumns.length)}>
         {[...members]
           .sort((a, b) => {
             if (a.id === user?.id) return -1;
@@ -289,6 +297,15 @@ export function DashboardPage() {
             />
           );
         })}
+        {sharedColumns.map((col) => (
+          <SharedDayColumn
+            key={col.spaceId}
+            spaceId={col.spaceId}
+            partnerName={col.partnerName}
+            tasks={col.tasks}
+            selectedDate={selectedDate}
+          />
+        ))}
       </div>
 
       <div className="grid lg:grid-cols-2 gap-5">

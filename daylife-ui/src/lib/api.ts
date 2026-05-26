@@ -26,7 +26,21 @@ import {
 import type { ItemVisibility } from './privacy';
 import { defaultVisibility, isVisibleToViewer } from './privacy';
 import { hashPin, verifyPin, validatePinFormat } from './pin';
-import { normalizeUsername, validateUsername } from './accounts';
+import { normalizeUsername, validateUsername, resolveAccountId, getActiveAccountId } from './accounts';
+import {
+  type Connection,
+  type ShareFeature,
+  type ShareInvite,
+  fetchInbox,
+  pushInbox,
+  fetchSharedSpace,
+  saveSharedSpace,
+  updatePartnerConnection,
+  emptySharedSpace,
+  newShareId,
+} from './sharing';
+
+export type { Connection, ShareFeature, ShareInvite };
 
 export class ApiError extends Error {
   constructor(
@@ -1584,6 +1598,237 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     if (method === 'DELETE') {
       data.visionBoard.splice(idx, 1);
       saveData(data);
+      return undefined as T;
+    }
+  }
+
+  // Connections & shared spaces
+  if (route === '/connections' && method === 'GET') {
+    return (data.connections || []) as T;
+  }
+
+  if (route === '/connections/sync-inbox' && method === 'POST') {
+    const accountId = getActiveAccountId();
+    if (!accountId) throw new ApiError(400, 'Not signed in to an account');
+    if (!data.connections) data.connections = [];
+    const inbox = await fetchInbox(accountId);
+    for (const invite of inbox.invites) {
+      if (data.connections.some((c) => c.inviteId === invite.id)) continue;
+      data.connections.push({
+        id: uid(),
+        inviteId: invite.id,
+        partnerUsername: invite.fromUsername,
+        partnerAccountId: invite.fromAccountId,
+        partnerName: invite.fromName,
+        features: invite.features,
+        status: 'pending_received',
+        initiatedByMe: false,
+        createdAt: invite.createdAt,
+      });
+    }
+    saveData(data);
+    return data.connections as T;
+  }
+
+  if (route === '/connections/invite' && method === 'POST') {
+    const accountId = getActiveAccountId();
+    if (!accountId) throw new ApiError(400, 'Cloud account required');
+    const me = data.users.find((u) => u.id === sessionId);
+    if (!me?.username) throw new ApiError(400, 'Your profile needs a username');
+    const { username, features } = body as { username?: string; features?: ShareFeature[] };
+    const partnerUsername = normalizeUsername(username || '');
+    if (!partnerUsername) throw new ApiError(400, 'Enter a username');
+    const partnerAccountId = await resolveAccountId(partnerUsername);
+    if (!partnerAccountId) throw new ApiError(404, 'No account with that username');
+    if (partnerAccountId === accountId) throw new ApiError(400, 'You cannot invite yourself');
+    const shareFeatures: ShareFeature[] = features?.length ? features : ['tasks'];
+    if (shareFeatures.length === 0) throw new ApiError(400, 'Pick at least one thing to share');
+    if (!data.connections) data.connections = [];
+    const duplicate = data.connections.find(
+      (c) =>
+        c.partnerAccountId === partnerAccountId &&
+        (c.status === 'active' || c.status === 'pending_sent' || c.status === 'pending_received'),
+    );
+    if (duplicate) throw new ApiError(409, 'You already have a pending or active connection with this person');
+    const inviteId = newShareId();
+    const createdAt = new Date().toISOString();
+    const invite: ShareInvite = {
+      id: inviteId,
+      fromAccountId: accountId,
+      fromUsername: me.username,
+      fromName: me.name,
+      features: shareFeatures,
+      createdAt,
+    };
+    const inbox = await fetchInbox(partnerAccountId);
+    inbox.invites = inbox.invites.filter(
+      (i) => !(i.fromAccountId === accountId && i.features.join(',') === shareFeatures.join(',')),
+    );
+    inbox.invites.push(invite);
+    await pushInbox(partnerAccountId, inbox);
+    const connection: Connection = {
+      id: uid(),
+      inviteId,
+      partnerUsername,
+      partnerAccountId,
+      features: shareFeatures,
+      status: 'pending_sent',
+      initiatedByMe: true,
+      createdAt,
+    };
+    data.connections.push(connection);
+    saveData(data);
+    return connection as T;
+  }
+
+  const connectionActionMatch = route.match(/^\/connections\/([^/]+)\/(accept|decline)$/);
+  if (connectionActionMatch && method === 'POST') {
+    const inviteId = connectionActionMatch[1];
+    const action = connectionActionMatch[2];
+    const accountId = getActiveAccountId();
+    if (!accountId) throw new ApiError(400, 'Cloud account required');
+    if (!data.connections) data.connections = [];
+    const conn = data.connections.find((c) => c.inviteId === inviteId);
+    if (!conn) throw new ApiError(404, 'Invite not found');
+    const me = data.users.find((u) => u.id === sessionId);
+    if (action === 'decline') {
+      conn.status = 'declined';
+      saveData(data);
+      const inbox = await fetchInbox(accountId);
+      inbox.invites = inbox.invites.filter((i) => i.id !== inviteId);
+      await pushInbox(accountId, inbox);
+      if (!conn.initiatedByMe) {
+        await updatePartnerConnection(conn.partnerAccountId, {
+          id: uid(),
+          inviteId: conn.inviteId,
+          partnerUsername: me?.username || 'partner',
+          partnerAccountId: accountId,
+          partnerName: me?.name,
+          features: conn.features,
+          status: 'declined',
+          initiatedByMe: true,
+          createdAt: conn.createdAt,
+        });
+      }
+      return conn as T;
+    }
+    if (conn.status !== 'pending_received') {
+      throw new ApiError(400, 'This invite is not waiting for your response');
+    }
+    const spaceId = newShareId();
+    const space = emptySharedSpace(
+      spaceId,
+      conn.partnerAccountId,
+      accountId,
+      conn.partnerUsername,
+      me?.username || 'you',
+      conn.features,
+    );
+    await saveSharedSpace(space);
+    conn.status = 'active';
+    conn.sharedSpaceId = spaceId;
+    saveData(data);
+    const inbox = await fetchInbox(accountId);
+    inbox.invites = inbox.invites.filter((i) => i.id !== inviteId);
+    await pushInbox(accountId, inbox);
+    await updatePartnerConnection(conn.partnerAccountId, {
+      id: uid(),
+      inviteId: conn.inviteId,
+      partnerUsername: me?.username || 'partner',
+      partnerAccountId: accountId,
+      partnerName: me?.name,
+      features: conn.features,
+      status: 'active',
+      sharedSpaceId: spaceId,
+      initiatedByMe: true,
+      createdAt: conn.createdAt,
+    });
+    return conn as T;
+  }
+
+  if (route === '/shared/summary' && method === 'GET') {
+    const date = q.get('date') || todayISO();
+    const active = (data.connections || []).filter(
+      (c) => c.status === 'active' && c.sharedSpaceId && c.features.includes('tasks'),
+    );
+    const columns = await Promise.all(
+      active.map(async (conn) => {
+        const space = await fetchSharedSpace(conn.sharedSpaceId!);
+        const tasks = (space?.tasks || [])
+          .filter((t) => t.dueDate?.slice(0, 10) === date)
+          .map((t) => enrichTask(data, t));
+        return {
+          spaceId: conn.sharedSpaceId!,
+          partnerName: conn.partnerName || conn.partnerUsername,
+          partnerUsername: conn.partnerUsername,
+          tasks,
+        };
+      }),
+    );
+    return { columns } as T;
+  }
+
+  const sharedTaskMatch = route.match(/^\/shared\/([^/]+)\/tasks(?:\/([^/]+)(?:\/toggle)?)?$/);
+  if (sharedTaskMatch) {
+    const spaceId = sharedTaskMatch[1];
+    const taskId = sharedTaskMatch[2];
+    const isToggle = route.endsWith('/toggle');
+    const conn = (data.connections || []).find(
+      (c) => c.sharedSpaceId === spaceId && c.status === 'active',
+    );
+    if (!conn) throw new ApiError(403, 'Shared space not found');
+
+    if (method === 'POST' && !taskId) {
+      const b = body as { title?: string; area?: Task['area']; dueDate?: string };
+      if (!b.title?.trim()) throw new ApiError(400, 'Title is required');
+      const space = (await fetchSharedSpace(spaceId)) || emptySharedSpace(
+        spaceId,
+        conn.partnerAccountId,
+        getActiveAccountId() || '',
+        conn.partnerUsername,
+        data.users[0]?.username || 'you',
+        conn.features,
+      );
+      const task: Task = {
+        id: uid(),
+        title: b.title.trim(),
+        area: b.area || 'PERSONAL',
+        status: 'TODO',
+        priority: 'MEDIUM',
+        dueDate: b.dueDate || todayISO(),
+        assigneeId: sessionId!,
+        createdById: sessionId!,
+        visibility: 'SHARED',
+      };
+      space.tasks.push(task);
+      await saveSharedSpace(space);
+      return enrichTask(data, task) as T;
+    }
+
+    if (taskId && isToggle && method === 'PATCH') {
+      const space = await fetchSharedSpace(spaceId);
+      if (!space) throw new ApiError(404, 'Shared space not found');
+      const idx = space.tasks.findIndex((t) => t.id === taskId);
+      if (idx < 0) throw new ApiError(404, 'Task not found');
+      const task = space.tasks[idx];
+      if (task.status === 'DONE') {
+        task.status = 'TODO';
+        delete task.completedAt;
+      } else {
+        task.status = 'DONE';
+        task.completedAt = new Date().toISOString();
+      }
+      await saveSharedSpace(space);
+      return enrichTask(data, task) as T;
+    }
+
+    if (taskId && method === 'DELETE') {
+      const space = await fetchSharedSpace(spaceId);
+      if (!space) throw new ApiError(404, 'Shared space not found');
+      const idx = space.tasks.findIndex((t) => t.id === taskId);
+      if (idx < 0) throw new ApiError(404, 'Task not found');
+      space.tasks.splice(idx, 1);
+      await saveSharedSpace(space);
       return undefined as T;
     }
   }

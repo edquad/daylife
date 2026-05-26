@@ -47,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .then((u) => {
           setUser(u);
           markUserUnlocked(u.id);
+          api.post('/connections/sync-inbox').catch(() => undefined);
         })
         .catch(() => api.setToken(null))
         .finally(() => setIsLoading(false));
@@ -86,6 +87,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       /* local account still works */
     }
+
+    try {
+      await api.post('/connections/sync-inbox');
+    } catch {
+      /* inbox optional */
+    }
     await queryClient.invalidateQueries();
   };
 
@@ -117,6 +124,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     markUserUnlocked(res.user.id);
     setUser(res.user);
     refreshFromStorage();
+
+    try {
+      await api.post('/connections/sync-inbox');
+    } catch {
+      /* inbox sync is best-effort */
+    }
+
     await queryClient.invalidateQueries();
   };
 

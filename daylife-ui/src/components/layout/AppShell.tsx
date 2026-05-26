@@ -8,13 +8,14 @@ import { DayPicker } from '../DayPicker';
 import { InstallAppBanner } from '../InstallAppBanner';
 import {
   LayoutDashboard, CheckSquare, Receipt, Briefcase, Home, Settings,
-  Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star, HandCoins,
+  Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star, HandCoins, Users,
 } from 'lucide-react';
 import { supportsExpenseSplits } from '../../lib/household';
 
 const baseNavItems = [
   { path: '/', label: 'Today', icon: LayoutDashboard },
   { path: '/tasks', label: 'All tasks', icon: CheckSquare },
+  { path: '/share', label: 'Share', icon: Users },
   { path: '/daily', label: 'Daily life', icon: Sparkles },
   { path: '/vision', label: 'Vision board', icon: Star },
   { path: '/expenses', label: 'Expenses', icon: Receipt },

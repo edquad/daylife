@@ -12,6 +12,7 @@ import type {
   Settlement,
 } from './api';
 import type { HouseholdType } from './household';
+import type { Connection } from './sharing';
 
 const STORAGE_KEY = 'daylife_data';
 const SESSION_KEY = 'daylife_session';
@@ -54,6 +55,7 @@ export interface AppData {
   setupComplete: boolean;
   householdType?: HouseholdType;
   householdName?: string;
+  connections?: Connection[];
   updatedAt?: string;
 }
 
@@ -135,6 +137,7 @@ export function normalizeAppData(parsed: Partial<AppData>): AppData {
     reminders: parsed.reminders ?? [],
     visionBoard: parsed.visionBoard ?? [],
     settlements: parsed.settlements ?? [],
+    connections: parsed.connections ?? [],
   };
   const resolvedType = resolveHouseholdType(merged);
   if (merged.householdType !== resolvedType) {
