@@ -1,0 +1,4 @@
+packages:
+  - 'daylife-ui'
+allowBuilds:
+  esbuild: true

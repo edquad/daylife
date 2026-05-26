@@ -1,0 +1,15 @@
+{
+  "name": "daylife",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Daily tasks, expenses, work & home — together. No database, runs in your browser.",
+  "scripts": {
+    "dev": "pnpm --filter daylife-ui dev",
+    "build": "pnpm --filter daylife-ui build",
+    "preview": "pnpm --filter daylife-ui preview",
+    "typecheck": "pnpm --filter daylife-ui typecheck"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
