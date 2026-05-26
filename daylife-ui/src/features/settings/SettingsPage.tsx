@@ -12,12 +12,14 @@ import {
   type HouseholdType,
 } from '../../lib/household';
 import { toast } from '../../components/Toaster';
-import { Heart, Download, Upload, Trash2, UserPlus, LogOut, Cloud, RefreshCw, Smartphone } from 'lucide-react';
+import { Heart, Download, Upload, Trash2, UserPlus, LogOut, Cloud, RefreshCw, Smartphone, Lock } from 'lucide-react';
 import { usePwaInstall } from '../../hooks/usePwaInstall';
 import { AndroidInstallSteps, IosInstallSteps } from '../../components/InstallInstructions';
+import { PinModal } from '../../components/PinModal';
+import { ApiError } from '../../lib/api';
 
 export function SettingsPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const { config, status, statusMessage, cloudReady, pullFromGitHub, syncToGitHub } = useGitHubSync();
   const { install, isStandalone, isIos, isAndroid, showIosHint, showAndroidInstall, showAndroidHint } = usePwaInstall();
   const queryClient = useQueryClient();
@@ -25,6 +27,9 @@ export function SettingsPage() {
   const [name, setName] = useState(user?.name || '');
   const [color, setColor] = useState(user?.color || '#0F766E');
   const [newMemberName, setNewMemberName] = useState('');
+  const [pinModal, setPinModal] = useState<'set' | 'change-current' | 'change-new' | 'remove' | null>(null);
+  const [pinError, setPinError] = useState('');
+  const [currentPinDraft, setCurrentPinDraft] = useState('');
 
   const { data: household } = useQuery<HouseholdInfo>({
     queryKey: ['household'],
@@ -151,6 +156,41 @@ export function SettingsPage() {
           className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50">
           Save profile
         </button>
+      </section>
+
+      <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
+        <h2 className="font-semibold flex items-center gap-2">
+          <Lock size={18} className="text-brand-600" /> PIN lock
+        </h2>
+        <p className="text-sm text-gray-500">
+          Optional 4-digit PIN for this account. Required to log in or switch to you on a shared phone.
+        </p>
+        {user?.hasPin ? (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => { setPinError(''); setCurrentPinDraft(''); setPinModal('change-current'); }}
+              className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50"
+            >
+              Change PIN
+            </button>
+            <button
+              type="button"
+              onClick={() => { setPinError(''); setPinModal('remove'); }}
+              className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50"
+            >
+              Remove PIN
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => { setPinError(''); setPinModal('set'); }}
+            className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
+          >
+            Set PIN
+          </button>
+        )}
       </section>
 
       <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
@@ -300,6 +340,70 @@ export function SettingsPage() {
           <Trash2 size={16} /> Clear all data on this device
         </button>
       </section>
+
+      {pinModal && (
+        <PinModal
+          title={
+            pinModal === 'remove'
+              ? 'Remove PIN'
+              : pinModal === 'change-current'
+                ? 'Current PIN'
+                : pinModal === 'change-new'
+                  ? 'New PIN'
+                  : 'Set PIN'
+          }
+          subtitle={
+            pinModal === 'remove'
+              ? 'Enter your current PIN to remove it'
+              : pinModal === 'change-current'
+                ? 'Enter your current PIN'
+                : pinModal === 'change-new'
+                  ? 'Choose a new 4-digit PIN'
+                  : 'Choose a 4-digit PIN'
+          }
+          submitLabel={
+            pinModal === 'remove'
+              ? 'Remove PIN'
+              : pinModal === 'change-new'
+                ? 'Save new PIN'
+                : 'Continue'
+          }
+          onClose={() => {
+            setPinModal(null);
+            setPinError('');
+            setCurrentPinDraft('');
+          }}
+          error={pinError}
+          onSubmit={async (pin) => {
+            try {
+              if (pinModal === 'remove') {
+                await api.delete('/users/me/pin', { currentPin: pin });
+                toast.success('PIN removed');
+                setPinModal(null);
+              } else if (pinModal === 'change-current') {
+                setCurrentPinDraft(pin);
+                setPinError('');
+                setPinModal('change-new');
+                return;
+              } else if (pinModal === 'change-new') {
+                await api.put('/users/me/pin', { pin, currentPin: currentPinDraft });
+                toast.success('PIN updated');
+                setPinModal(null);
+                setCurrentPinDraft('');
+              } else {
+                await api.put('/users/me/pin', { pin });
+                toast.success('PIN set');
+                setPinModal(null);
+              }
+              await refreshUser();
+              queryClient.invalidateQueries({ queryKey: ['users'] });
+            } catch (err: any) {
+              setPinError(err instanceof ApiError ? err.message : 'Could not update PIN');
+              throw err;
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

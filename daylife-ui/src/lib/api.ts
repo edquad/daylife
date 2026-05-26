@@ -23,6 +23,9 @@ import {
   getExpenseShares,
   simplifyDebts,
 } from './splits';
+import type { ItemVisibility } from './privacy';
+import { defaultVisibility, isVisibleToViewer } from './privacy';
+import { hashPin, verifyPin, validatePinFormat } from './pin';
 
 export class ApiError extends Error {
   constructor(
@@ -40,6 +43,8 @@ export interface User {
   name: string;
   role: string;
   color: string;
+  hasPin?: boolean;
+  pinHash?: string;
 }
 
 export interface Task {
@@ -55,6 +60,8 @@ export interface Task {
   assigneeId?: string;
   createdBy?: { id: string; name: string };
   createdById?: string;
+  visibility?: ItemVisibility;
+  ownerId?: string;
 }
 
 export type SplitMode = 'EQUAL' | 'EXACT';
@@ -66,6 +73,8 @@ export interface StoredExpense {
   expenseDate: string;
   categoryId: string;
   paidById: string;
+  visibility?: ItemVisibility;
+  ownerId?: string;
   isShared?: boolean;
   splitMode?: SplitMode;
   participantIds?: string[];
@@ -79,6 +88,8 @@ export interface Expense {
   expenseDate: string;
   category: { id: string; name: string; color: string };
   paidBy: { id: string; name: string; color: string };
+  visibility?: ItemVisibility;
+  ownerId?: string;
   isShared?: boolean;
   splitMode?: SplitMode;
   participantIds?: string[];
@@ -121,6 +132,8 @@ export interface DailyNote {
   area: 'PERSONAL' | 'WORK' | 'HOME';
   noteDate: string;
   author: { id: string; name: string; color: string };
+  visibility?: ItemVisibility;
+  ownerId?: string;
 }
 
 export interface ExpenseCategory {
@@ -290,6 +303,41 @@ function findUser(data: ReturnType<typeof loadData>, id: string) {
   return data.users.find((u) => u.id === id);
 }
 
+function publicUser(u: User): User {
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    role: u.role,
+    color: u.color,
+    hasPin: !!u.pinHash,
+  };
+}
+
+function taskOwnerId(task: Task): string {
+  return task.ownerId || task.createdById || task.assigneeId || '';
+}
+
+function expenseOwnerId(exp: StoredExpense): string {
+  return exp.ownerId || exp.paidById || '';
+}
+
+function noteOwnerId(note: { ownerId?: string; authorId?: string }): string {
+  return note.ownerId || note.authorId || '';
+}
+
+function filterVisible<T>(
+  items: T[],
+  viewerId: string | null,
+  getOwner: (item: T) => string,
+  getVisibility: (item: T) => ItemVisibility | undefined,
+): T[] {
+  if (!viewerId) return items;
+  return items.filter((item) =>
+    isVisibleToViewer(getVisibility(item), getOwner(item), viewerId),
+  );
+}
+
 function enrichTask(data: ReturnType<typeof loadData>, task: Task): Task {
   const assignee = task.assigneeId ? findUser(data, task.assigneeId) : undefined;
   const createdBy = task.createdById ? findUser(data, task.createdById) : undefined;
@@ -310,6 +358,8 @@ function enrichExpense(data: ReturnType<typeof loadData>, exp: StoredExpense): E
     expenseDate: exp.expenseDate,
     category: category || { id: 'cat-other', name: 'Other', color: '#6B7280' },
     paidBy: paidBy ? userRef(paidBy) : { id: '', name: 'Unknown', color: '#6B7280' },
+    visibility: exp.visibility,
+    ownerId: exp.ownerId,
   };
 
   if (!exp.isShared) return base;
@@ -435,6 +485,8 @@ function enrichNote(data: ReturnType<typeof loadData>, note: DailyNote & { autho
     content: note.content,
     area: note.area,
     noteDate: note.noteDate,
+    visibility: note.visibility,
+    ownerId: note.ownerId || note.authorId,
     author: author ? userRef(author) : { id: '', name: 'Unknown', color: '#6B7280' },
   };
 }
@@ -452,8 +504,13 @@ function enrichVision(data: ReturnType<typeof loadData>, item: VisionBoardItem):
   };
 }
 
-function filterTasks(data: ReturnType<typeof loadData>, q: URLSearchParams) {
-  let tasks = [...data.tasks];
+function filterTasks(data: ReturnType<typeof loadData>, q: URLSearchParams, viewerId: string | null) {
+  let tasks = filterVisible(
+    [...data.tasks],
+    viewerId,
+    taskOwnerId,
+    (t) => t.visibility,
+  );
   const area = q.get('area');
   const status = q.get('status');
   const assigneeId = q.get('assigneeId');
@@ -490,8 +547,13 @@ function filterTasks(data: ReturnType<typeof loadData>, q: URLSearchParams) {
   return tasks.slice(0, limit).map((t) => enrichTask(data, t));
 }
 
-function filterExpenses(data: ReturnType<typeof loadData>, q: URLSearchParams) {
-  let expenses = [...data.expenses];
+function filterExpenses(data: ReturnType<typeof loadData>, q: URLSearchParams, viewerId: string | null) {
+  let expenses = filterVisible(
+    [...data.expenses],
+    viewerId,
+    expenseOwnerId,
+    (e) => e.visibility,
+  );
   const from = q.get('from');
   const to = q.get('to');
   const date = q.get('date');
@@ -541,12 +603,17 @@ function expenseReportRange(period: ReportPeriod, anchor: string) {
   return { from: `${year}-01-01`, to: `${year}-12-31`, label: year };
 }
 
-function expenseReport(data: ReturnType<typeof loadData>, q: URLSearchParams) {
+function expenseReport(data: ReturnType<typeof loadData>, q: URLSearchParams, viewerId: string | null) {
   const period = (q.get('period') || 'daily') as ReportPeriod;
   const anchor = q.get('date') || todayISO();
   const { from, to, label } = expenseReportRange(period, anchor);
 
-  let expenses = data.expenses.filter((e) => {
+  let expenses = filterVisible(
+    data.expenses,
+    viewerId,
+    expenseOwnerId,
+    (e) => e.visibility,
+  ).filter((e) => {
     const d = e.expenseDate.slice(0, 10);
     return d >= from && d <= to;
   });
@@ -680,8 +747,13 @@ function routinesForDay(data: ReturnType<typeof loadData>, date: string): Routin
   });
 }
 
-function filterNotes(data: ReturnType<typeof loadData>, q: URLSearchParams) {
-  let notes = [...data.notes];
+function filterNotes(data: ReturnType<typeof loadData>, q: URLSearchParams, viewerId: string | null) {
+  let notes = filterVisible(
+    [...data.notes] as Array<{ id: string; content: string; area: DailyNote['area']; noteDate: string; authorId?: string; visibility?: ItemVisibility; ownerId?: string }>,
+    viewerId,
+    noteOwnerId,
+    (n) => n.visibility,
+  );
   const area = q.get('area');
   const from = q.get('from');
   const to = q.get('to');
@@ -693,15 +765,35 @@ function filterNotes(data: ReturnType<typeof loadData>, q: URLSearchParams) {
   return notes.slice(0, limit).map((n) => enrichNote(data, n as any));
 }
 
-function dashboardSummary(data: ReturnType<typeof loadData>, dateParam?: string) {
+function dashboardSummary(data: ReturnType<typeof loadData>, dateParam?: string, viewerId?: string | null) {
   const day = dateParam || todayISO();
   const monthPrefix = day.slice(0, 7);
+  const viewer = viewerId ?? null;
 
-  const dayTasks = data.tasks
+  const visibleTasks = filterVisible(
+    data.tasks,
+    viewer,
+    taskOwnerId,
+    (t) => t.visibility,
+  );
+  const visibleExpenses = filterVisible(
+    data.expenses,
+    viewer,
+    expenseOwnerId,
+    (e) => e.visibility,
+  );
+  const visibleNotes = filterVisible(
+    data.notes as Array<{ authorId?: string; visibility?: ItemVisibility; ownerId?: string; noteDate: string; id: string; content: string; area: DailyNote['area'] }>,
+    viewer,
+    noteOwnerId,
+    (n) => n.visibility,
+  );
+
+  const dayTasks = visibleTasks
     .filter((t) => t.dueDate?.slice(0, 10) === day)
     .map((t) => enrichTask(data, t));
 
-  const monthTasks = data.tasks
+  const monthTasks = visibleTasks
     .filter((t) => t.dueDate?.slice(0, 7) === monthPrefix)
     .map((t) => enrichTask(data, t));
 
@@ -710,19 +802,19 @@ function dashboardSummary(data: ReturnType<typeof loadData>, dateParam?: string)
 
   const todayTasks = dayTasks.filter((t) => t.status !== 'DONE');
 
-  const overdueCount = data.tasks.filter(
+  const overdueCount = visibleTasks.filter(
     (t) => t.dueDate && t.dueDate.slice(0, 10) < todayISO() && t.status !== 'DONE',
   ).length;
 
-  const dayExpenses = data.expenses
+  const dayExpenses = visibleExpenses
     .filter((e) => e.expenseDate.slice(0, 10) === day)
     .map((e) => enrichExpense(data, e));
 
-  const monthExpenses = data.expenses.filter((e) => e.expenseDate.slice(0, 7) === monthPrefix);
+  const monthExpenses = visibleExpenses.filter((e) => e.expenseDate.slice(0, 7) === monthPrefix);
   const monthTotal = monthExpenses.reduce((s, e) => s + parseFloat(e.amount), 0);
   const dayTotal = dayExpenses.reduce((s, e) => s + parseFloat(e.amount), 0);
 
-  const recentNotes = data.notes
+  const recentNotes = visibleNotes
     .filter((n) => n.noteDate.slice(0, 10) === day)
     .map((n) => enrichNote(data, n as any))
     .slice(0, 5);
@@ -762,6 +854,7 @@ function dashboardSummary(data: ReturnType<typeof loadData>, dateParam?: string)
 
   return {
     date: day,
+    viewerId: viewer,
     todayTasks,
     dayTasks,
     monthTasks,
@@ -804,6 +897,10 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     if (!payload.householdType) throw new ApiError(400, 'Household type is required');
 
     const users = buildUsersFromSetup(payload);
+    if (payload.pin?.trim()) {
+      if (!validatePinFormat(payload.pin)) throw new ApiError(400, 'PIN must be 4 digits');
+      users[0].pinHash = await hashPin(payload.pin, users[0].id);
+    }
     data.users = users;
     data.householdType = payload.householdType;
     data.householdName = payload.householdName?.trim() || undefined;
@@ -811,23 +908,28 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     data.setupComplete = true;
     saveData(data);
     setSessionUserId(users[0].id);
-    return { token: users[0].id, user: users[0] } as T;
+    return { token: users[0].id, user: publicUser(users[0]) } as T;
   }
 
   if (route === '/auth/login' && method === 'POST') {
-    const { userId } = body as { userId?: string; email?: string; password?: string };
+    const { userId, pin } = body as { userId?: string; pin?: string };
     if (!data.setupComplete) throw new ApiError(400, 'Please set up your household first');
     const user = data.users.find((u) => u.id === userId);
     if (!user) throw new ApiError(401, 'Please select who you are');
+    if (user.pinHash) {
+      if (!pin) throw new ApiError(401, 'Enter your 4-digit PIN');
+      const ok = await verifyPin(pin, user.id, user.pinHash);
+      if (!ok) throw new ApiError(401, 'Wrong PIN');
+    }
     setSessionUserId(user.id);
-    return { token: user.id, user } as T;
+    return { token: user.id, user: publicUser(user) } as T;
   }
 
   if (route === '/auth/me' && method === 'GET') {
     if (!sessionId) throw new ApiError(401, 'Not signed in');
     const user = data.users.find((u) => u.id === sessionId);
     if (!user) throw new ApiError(401, 'Not signed in');
-    return user as T;
+    return publicUser(user) as T;
   }
 
   if (!sessionId && route !== '/auth/register') {
@@ -836,14 +938,14 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
 
   // Users
   if (route === '/users' && method === 'GET') {
-    return data.users as T;
+    return data.users.map(publicUser) as T;
   }
 
   if (route === '/household' && method === 'GET') {
     return {
       householdType: resolveHouseholdType(data),
       householdName: data.householdName,
-      members: data.users,
+      members: data.users.map(publicUser),
     } as T;
   }
 
@@ -865,7 +967,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     };
     data.users.push(member);
     saveData(data);
-    return member as T;
+    return publicUser(member) as T;
   }
 
   const userDeleteMatch = route.match(/^\/users\/([^/]+)$/);
@@ -908,17 +1010,49 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     if (name) data.users[idx].name = name;
     if (color) data.users[idx].color = color;
     saveData(data);
-    return data.users[idx] as T;
+    return publicUser(data.users[idx]) as T;
+  }
+
+  if (route === '/users/me/pin' && method === 'PUT') {
+    const { pin, currentPin } = body as { pin?: string; currentPin?: string };
+    const idx = data.users.findIndex((u) => u.id === sessionId);
+    if (idx < 0) throw new ApiError(404, 'User not found');
+    const user = data.users[idx];
+    if (!pin || !validatePinFormat(pin)) throw new ApiError(400, 'PIN must be 4 digits');
+    if (user.pinHash) {
+      if (!currentPin) throw new ApiError(400, 'Enter your current PIN');
+      const ok = await verifyPin(currentPin, user.id, user.pinHash);
+      if (!ok) throw new ApiError(401, 'Wrong current PIN');
+    }
+    user.pinHash = await hashPin(pin, user.id);
+    saveData(data);
+    return publicUser(user) as T;
+  }
+
+  if (route === '/users/me/pin' && method === 'DELETE') {
+    const { currentPin } = body as { currentPin?: string };
+    const idx = data.users.findIndex((u) => u.id === sessionId);
+    if (idx < 0) throw new ApiError(404, 'User not found');
+    const user = data.users[idx];
+    if (user.pinHash) {
+      if (!currentPin) throw new ApiError(400, 'Enter your current PIN');
+      const ok = await verifyPin(currentPin, user.id, user.pinHash);
+      if (!ok) throw new ApiError(401, 'Wrong current PIN');
+    }
+    delete user.pinHash;
+    saveData(data);
+    return publicUser(user) as T;
   }
 
   // Tasks
   if (route === '/tasks' && method === 'GET') {
-    const list = filterTasks(data, q);
+    const list = filterTasks(data, q, sessionId);
     return { data: list, total: list.length, page: 1, limit: list.length } as T;
   }
 
   if (route === '/tasks' && method === 'POST') {
     const b = body as Partial<Task>;
+    const visibility = b.visibility || defaultVisibility(data.users.length);
     const task: Task = {
       id: uid(),
       title: b.title!,
@@ -929,6 +1063,8 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       dueDate: b.dueDate || undefined,
       assigneeId: b.assigneeId || undefined,
       createdById: sessionId!,
+      visibility,
+      ownerId: sessionId!,
     };
     data.tasks.push(task);
     saveData(data);
@@ -961,6 +1097,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
         priority: b.priority ?? t.priority,
         dueDate: b.dueDate === null ? undefined : b.dueDate ?? t.dueDate,
         assigneeId: b.assigneeId === null ? undefined : b.assigneeId ?? t.assigneeId,
+        visibility: b.visibility ?? t.visibility,
       });
       if (t.status === 'DONE' && !t.completedAt) t.completedAt = new Date().toISOString();
       if (t.status !== 'DONE') t.completedAt = undefined;
@@ -981,7 +1118,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
   }
 
   if (route === '/expenses/report' && method === 'GET') {
-    return expenseReport(data, q) as T;
+    return expenseReport(data, q, sessionId) as T;
   }
 
   if (route === '/splits/balances' && method === 'GET') {
@@ -1030,7 +1167,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
   }
 
   if (route === '/expenses' && method === 'GET') {
-    const list = filterExpenses(data, q);
+    const list = filterExpenses(data, q, sessionId);
     return { data: list, total: list.length, page: 1, limit: list.length } as T;
   }
 
@@ -1041,11 +1178,14 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       categoryId: string;
       expenseDate: string;
       paidById?: string;
+      visibility?: ItemVisibility;
       isShared?: boolean;
       splitMode?: SplitMode;
       participantIds?: string[];
       shares?: Record<string, string>;
     };
+    const isShared = b.isShared ?? false;
+    const visibility = isShared ? 'SHARED' : (b.visibility || defaultVisibility(data.users.length));
     const exp: StoredExpense = {
       id: uid(),
       amount: b.amount.toFixed(2),
@@ -1053,6 +1193,8 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       categoryId: b.categoryId,
       expenseDate: b.expenseDate,
       paidById: b.paidById || sessionId!,
+      visibility,
+      ownerId: sessionId!,
     };
     applySplitFields(exp, b, data.users.map((u) => u.id), b.amount);
     data.expenses.push(exp);
@@ -1071,6 +1213,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
         categoryId?: string;
         expenseDate?: string;
         paidById?: string;
+        visibility?: ItemVisibility;
         isShared?: boolean;
         splitMode?: SplitMode;
         participantIds?: string[];
@@ -1083,6 +1226,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       if (b.categoryId) e.categoryId = b.categoryId;
       if (b.expenseDate) e.expenseDate = b.expenseDate;
       if (b.paidById) e.paidById = b.paidById;
+      if (b.visibility !== undefined) e.visibility = b.visibility;
       if (b.isShared !== undefined || b.splitMode || b.participantIds || b.shares) {
         applySplitFields(
           e,
@@ -1095,6 +1239,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
           data.users.map((u) => u.id),
           amount,
         );
+        if (e.isShared) e.visibility = 'SHARED';
       }
       saveData(data);
       return enrichExpense(data, e) as T;
@@ -1108,13 +1253,21 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
 
   // Notes
   if (route === '/notes' && method === 'GET') {
-    const list = filterNotes(data, q);
+    const list = filterNotes(data, q, sessionId);
     return { data: list, total: list.length, page: 1, limit: list.length } as T;
   }
 
   if (route === '/notes' && method === 'POST') {
-    const b = body as { content: string; area: DailyNote['area']; noteDate: string };
-    const note = { id: uid(), content: b.content, area: b.area, noteDate: b.noteDate, authorId: sessionId! };
+    const b = body as { content: string; area: DailyNote['area']; noteDate: string; visibility?: ItemVisibility };
+    const note = {
+      id: uid(),
+      content: b.content,
+      area: b.area,
+      noteDate: b.noteDate,
+      authorId: sessionId!,
+      ownerId: sessionId!,
+      visibility: b.visibility || defaultVisibility(data.users.length),
+    };
     data.notes.push(note as any);
     saveData(data);
     return enrichNote(data, note as any) as T;
@@ -1134,7 +1287,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
   // Dashboard
   if (route === '/dashboard/summary' && method === 'GET') {
     const date = q.get('date') || undefined;
-    return dashboardSummary(data, date) as T;
+    return dashboardSummary(data, date, sessionId) as T;
   }
 
   // Shopping
@@ -1410,8 +1563,8 @@ class ApiClient {
     return handleRequest<T>(path, 'PATCH', body);
   }
 
-  delete(path: string) {
-    return handleRequest(path, 'DELETE');
+  delete(path: string, body?: unknown) {
+    return handleRequest(path, 'DELETE', body);
   }
 }
 

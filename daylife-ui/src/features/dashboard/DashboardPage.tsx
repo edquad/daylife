@@ -2,10 +2,14 @@ import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, Expense, Task, User } from '../../lib/api';
+import { useAuth } from '../auth/AuthContext';
 import { useDateStore } from '../../lib/dateStore';
 import { formatDayHeading, formatMoney, todayISO } from '../../lib/format';
 import { DayPicker } from '../../components/DayPicker';
 import { PersonDayColumn } from '../../components/PersonDayColumn';
+import { VisibilityToggle } from '../../components/VisibilityToggle';
+import { defaultVisibility } from '../../lib/privacy';
+import type { ItemVisibility } from '../../lib/privacy';
 import { Receipt, AlertCircle, Plus, StickyNote, CheckSquare, ShoppingCart, Sun, Bell, Sparkles, Star } from 'lucide-react';
 import { AREA_COLORS, AREA_LABELS, memberGridClass } from '../../lib/utils';
 import { HOUSEHOLD_TYPE_LABELS } from '../../lib/household';
@@ -41,6 +45,7 @@ interface DaySummary {
 }
 
 export function DashboardPage() {
+  const { user } = useAuth();
   const selectedDate = useDateStore((s) => s.selectedDate);
   const queryClient = useQueryClient();
 
@@ -65,12 +70,20 @@ export function DashboardPage() {
   });
 
   const addNote = useMutation({
-    mutationFn: (content: string) =>
-      api.post('/notes', { content, area: 'PERSONAL', noteDate: selectedDate }),
+    mutationFn: (payload: { content: string; visibility: ItemVisibility }) =>
+      api.post('/notes', {
+        content: payload.content,
+        area: 'PERSONAL',
+        noteDate: selectedDate,
+        visibility: payload.visibility,
+      }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
   });
 
   const [dayNote, setDayNote] = React.useState('');
+  const [noteVisibility, setNoteVisibility] = React.useState<ItemVisibility>(
+    defaultVisibility(members.length),
+  );
 
   if (isLoading) {
     return (
@@ -85,6 +98,12 @@ export function DashboardPage() {
   }
 
   const byPerson = data?.byPerson ?? [];
+  const sortedByPerson = [...byPerson].sort((a, b) => {
+    if (a.userId === user?.id) return -1;
+    if (b.userId === user?.id) return 1;
+    return 0;
+  });
+  const isMultiMember = members.length > 1;
   const isToday = selectedDate === todayISO();
   const monthKey = selectedDate.slice(0, 7);
   const monthTasksDone = data?.monthTasksDone ?? 0;
@@ -99,11 +118,17 @@ export function DashboardPage() {
     <div className="p-4 lg:p-6 space-y-5">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{formatDayHeading(selectedDate)}</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {isMultiMember ? 'My day' : formatDayHeading(selectedDate)}
+            {isMultiMember && (
+              <span className="text-base font-normal text-gray-500 ml-2">{formatDayHeading(selectedDate)}</span>
+            )}
+          </h1>
           <p className="text-gray-500 text-sm">
-            {household?.householdName ||
-              HOUSEHOLD_TYPE_LABELS[(household?.householdType || data?.householdType || 'SINGLE') as keyof typeof HOUSEHOLD_TYPE_LABELS]}
-            {' · '}add tasks per person, check off when done
+            {isMultiMember
+              ? 'Your private items plus anything shared with the household'
+              : `${household?.householdName ||
+                  HOUSEHOLD_TYPE_LABELS[(household?.householdType || data?.householdType || 'SINGLE') as keyof typeof HOUSEHOLD_TYPE_LABELS]} · add tasks per person, check off when done`}
           </p>
         </div>
         <DayPicker />
@@ -118,7 +143,7 @@ export function DashboardPage() {
       )}
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {byPerson.map((p) => (
+        {sortedByPerson.map((p) => (
           <div key={p.userId} className="bg-white rounded-xl border p-3 shadow-sm">
             <p className="text-xs text-gray-500">{p.name}</p>
             <p className="text-xl font-bold" style={{ color: p.color }}>
@@ -256,7 +281,13 @@ export function DashboardPage() {
       )}
 
       <div className={memberGridClass(members.length)}>
-        {members.map((member) => {
+        {[...members]
+          .sort((a, b) => {
+            if (a.id === user?.id) return -1;
+            if (b.id === user?.id) return 1;
+            return 0;
+          })
+          .map((member) => {
           const personData = byPerson.find((p) => p.userId === member.id);
           return (
             <PersonDayColumn
@@ -264,6 +295,7 @@ export function DashboardPage() {
               person={member}
               tasks={personData?.tasks ?? []}
               selectedDate={selectedDate}
+              highlight={member.id === user?.id}
             />
           );
         })}
@@ -310,11 +342,19 @@ export function DashboardPage() {
             rows={2}
             className="w-full px-3 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand-500 mb-2"
           />
+          {isMultiMember && (
+            <div className="mb-2">
+              <VisibilityToggle value={noteVisibility} onChange={setNoteVisibility} compact />
+            </div>
+          )}
           <button
             type="button"
             onClick={() => {
               if (dayNote.trim()) {
-                addNote.mutate(dayNote.trim());
+                addNote.mutate({
+                  content: dayNote.trim(),
+                  visibility: isMultiMember ? noteVisibility : 'SHARED',
+                });
                 setDayNote('');
               }
             }}

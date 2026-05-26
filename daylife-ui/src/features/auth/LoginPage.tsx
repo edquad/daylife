@@ -9,8 +9,10 @@ import {
   MAX_HOUSEHOLD_SIZE,
   roleLabel,
 } from '../../lib/household';
-import { Heart, User, Users, ChevronLeft, Plus, Trash2, LogIn, UserPlus, HandCoins } from 'lucide-react';
+import { Heart, User, Users, ChevronLeft, Plus, Trash2, LogIn, UserPlus, HandCoins, Lock } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { PinModal } from '../../components/PinModal';
+import { validatePinFormat } from '../../lib/pin';
 
 type Screen = 'welcome' | 'login' | 'signup-type' | 'signup-details';
 
@@ -30,6 +32,8 @@ export function LoginPage() {
   const [householdName, setHouseholdName] = useState('');
   const [familyMembers, setFamilyMembers] = useState(['', '']);
   const [selectedUserId, setSelectedUserId] = useState('');
+  const [signupPin, setSignupPin] = useState('');
+  const [showLoginPin, setShowLoginPin] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -75,6 +79,7 @@ export function LoginPage() {
         householdName: householdType === 'FAMILY' || householdType === 'GROUP' ? householdName.trim() : undefined,
         partnerName: householdType === 'COUPLE' ? partnerName.trim() : undefined,
         memberNames: householdType === 'FAMILY' || householdType === 'GROUP' ? familyMembers : undefined,
+        pin: signupPin.trim() || undefined,
       });
     } catch (err: any) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong');
@@ -89,6 +94,12 @@ export function LoginPage() {
       setError('Please choose who you are');
       return;
     }
+    const selected = members.find((m) => m.id === selectedUserId);
+    if (selected?.hasPin) {
+      setShowLoginPin(true);
+      setError('');
+      return;
+    }
     setError('');
     setLoading(true);
     try {
@@ -100,8 +111,14 @@ export function LoginPage() {
     }
   };
 
+  const completeLoginWithPin = async (pin: string) => {
+    await loginAs(selectedUserId, pin);
+    setShowLoginPin(false);
+  };
+
   const canSubmitSignup =
     yourName.trim() &&
+    (!signupPin || validatePinFormat(signupPin)) &&
     (householdType === 'SINGLE' ||
       (householdType === 'COUPLE' && partnerName.trim()) ||
       (householdType === 'FAMILY' && familyMembers.some((m) => m.trim())) ||
@@ -236,7 +253,15 @@ export function LoginPage() {
                           </div>
                           <div>
                             <p className="font-medium">{m.name}</p>
-                            <p className="text-xs text-gray-400">{roleLabel(m.role, householdTypeKey)}</p>
+                            <p className="text-xs text-gray-400 flex items-center gap-1">
+                              {roleLabel(m.role, householdTypeKey)}
+                              {m.hasPin && (
+                                <>
+                                  {' · '}
+                                  <Lock size={10} /> PIN
+                                </>
+                              )}
+                            </p>
                           </div>
                         </>
                       );
@@ -258,10 +283,21 @@ export function LoginPage() {
 
               <div className="mt-4 pt-4 border-t">
                 <p className="text-xs text-gray-400 text-center">
-                  After login, switch users anytime from the top bar without signing out.
+                  Accounts with a PIN stay private on a shared phone. Switch accounts from Settings.
                 </p>
               </div>
             </>
+          )}
+
+          {showLoginPin && (
+            <PinModal
+              title="Enter your PIN"
+              subtitle={members.find((m) => m.id === selectedUserId)?.name}
+              submitLabel="Log in"
+              onClose={() => setShowLoginPin(false)}
+              onSubmit={completeLoginWithPin}
+              error={error}
+            />
           )}
 
           {/* ── Sign up: pick type ── */}
@@ -382,6 +418,22 @@ export function LoginPage() {
                     </div>
                   </>
                 )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    4-digit PIN (optional)
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={signupPin}
+                    onChange={(e) => setSignupPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="••••"
+                    className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none tracking-widest"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Keeps your private items locked on a shared phone.</p>
+                </div>
 
                 {error && <p className="text-sm text-red-600">{error}</p>}
                 <button

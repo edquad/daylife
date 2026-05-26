@@ -10,6 +10,12 @@ import { toast } from '../../components/Toaster';
 
 import { X } from 'lucide-react';
 
+import { VisibilityToggle } from '../../components/VisibilityToggle';
+
+import { defaultVisibility } from '../../lib/privacy';
+
+import type { ItemVisibility } from '../../lib/privacy';
+
 
 
 interface Props {
@@ -41,6 +47,10 @@ export function ExpenseFormModal({ expense, members, splitEnabled = false, defau
   const [expenseDate, setExpenseDate] = useState(expense?.expenseDate?.slice(0, 10) || defaultDate || todayISO());
 
   const [paidById, setPaidById] = useState(expense?.paidBy.id || members[0]?.id || '');
+
+  const [visibility, setVisibility] = useState<ItemVisibility>(
+    expense?.visibility || defaultVisibility(members.length),
+  );
 
   const [isShared, setIsShared] = useState(expense?.isShared ?? false);
 
@@ -137,6 +147,8 @@ export function ExpenseFormModal({ expense, members, splitEnabled = false, defau
         expenseDate,
 
         paidById,
+
+        visibility: splitEnabled && isShared ? 'SHARED' : members.length > 1 ? visibility : 'SHARED',
 
         isShared: splitEnabled ? isShared : false,
 
@@ -279,6 +291,12 @@ export function ExpenseFormModal({ expense, members, splitEnabled = false, defau
             </select>
 
           </div>
+
+
+
+          {members.length > 1 && !(splitEnabled && isShared) && (
+            <VisibilityToggle value={visibility} onChange={setVisibility} />
+          )}
 
 
 

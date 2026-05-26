@@ -5,6 +5,9 @@ import { todayISO } from '../../lib/format';
 import { useAuth } from '../auth/AuthContext';
 import { toast } from '../../components/Toaster';
 import { X } from 'lucide-react';
+import { VisibilityToggle } from '../../components/VisibilityToggle';
+import { defaultVisibility } from '../../lib/privacy';
+import type { ItemVisibility } from '../../lib/privacy';
 
 interface Props {
   task?: Task | null;
@@ -24,6 +27,9 @@ export function TaskFormModal({ task, members, defaultArea, defaultDueDate, onCl
   const [status, setStatus] = useState<Task['status']>(task?.status || 'TODO');
   const [dueDate, setDueDate] = useState(task?.dueDate?.slice(0, 10) || defaultDueDate || todayISO());
   const [assigneeId, setAssigneeId] = useState(task?.assignee?.id || user?.id || members[0]?.id || '');
+  const [visibility, setVisibility] = useState<ItemVisibility>(
+    task?.visibility || defaultVisibility(members.length),
+  );
   const [loading, setLoading] = useState(false);
 
   const save = useMutation({
@@ -36,6 +42,7 @@ export function TaskFormModal({ task, members, defaultArea, defaultDueDate, onCl
         status,
         dueDate: dueDate || null,
         assigneeId: assigneeId || null,
+        visibility: members.length > 1 ? visibility : 'SHARED',
       };
       if (task) return api.put<Task>(`/tasks/${task.id}`, body);
       return api.post<Task>('/tasks', body);
@@ -111,6 +118,9 @@ export function TaskFormModal({ task, members, defaultArea, defaultDueDate, onCl
               </select>
             </div>
           </div>
+          {members.length > 1 && (
+            <VisibilityToggle value={visibility} onChange={setVisibility} />
+          )}
           {task && (
             <div>
               <label className="block text-sm font-medium mb-1">Status</label>

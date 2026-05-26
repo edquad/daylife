@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { api, User, HouseholdInfo } from '../../lib/api';
 import { loadData, resolveHouseholdType, beginFreshSignup, endFreshSignup } from '../../lib/storage';
 import type { SetupPayload } from '../../lib/household';
+import { clearUnlock, markUserUnlocked } from '../../lib/pin';
+import { queryClient } from '../../lib/queryClient';
 
 interface AuthContextType {
   user: User | null;
@@ -9,10 +11,11 @@ interface AuthContextType {
   household: HouseholdInfo | null;
   setupComplete: boolean;
   setupHousehold: (payload: SetupPayload) => Promise<void>;
-  loginAs: (userId: string) => Promise<void>;
-  switchUser: (userId: string) => Promise<void>;
+  loginAs: (userId: string, pin?: string) => Promise<void>;
+  switchUser: (userId: string, pin?: string) => Promise<void>;
   logout: () => void;
   resetForNewSignup: () => void;
+  refreshUser: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -27,13 +30,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshHousehold = () => {
     const data = loadData();
-    setMembers(data.users);
+    setMembers(data.users.map((u) => ({ ...u, hasPin: !!u.pinHash })));
     setSetupComplete(data.setupComplete);
     if (data.setupComplete) {
       setHousehold({
         householdType: resolveHouseholdType(data),
         householdName: data.householdName,
-        members: data.users,
+        members: data.users.map((u) => ({ ...u, hasPin: !!u.pinHash })),
       });
     }
   };
@@ -43,7 +46,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const savedToken = api.getToken();
     if (savedToken) {
       api.get<User>('/auth/me')
-        .then(setUser)
+        .then((u) => {
+          setUser(u);
+          markUserUnlocked(u.id);
+        })
         .catch(() => api.setToken(null))
         .finally(() => setIsLoading(false));
     } else {
@@ -58,25 +64,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setupHousehold = async (payload: SetupPayload) => {
     const res = await api.post<{ token: string; user: User }>('/auth/register', payload);
     api.setToken(res.token);
+    markUserUnlocked(res.user.id);
     setUser(res.user);
     endFreshSignup();
     refreshHousehold();
+    await queryClient.invalidateQueries();
   };
 
-  const loginAs = async (userId: string) => {
-    const res = await api.post<{ token: string; user: User }>('/auth/login', { userId });
+  const loginAs = async (userId: string, pin?: string) => {
+    const res = await api.post<{ token: string; user: User }>('/auth/login', { userId, pin });
     api.setToken(res.token);
+    markUserUnlocked(res.user.id);
     setUser(res.user);
+    await queryClient.invalidateQueries();
   };
 
   const switchUser = loginAs;
 
   const logout = () => {
+    clearUnlock();
     api.setToken(null);
     setUser(null);
   };
 
   const resetForNewSignup = () => {
+    clearUnlock();
     localStorage.removeItem('daylife_data');
     localStorage.removeItem('daylife_session');
     beginFreshSignup();
@@ -87,10 +99,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSetupComplete(false);
   };
 
+  const refreshUser = async () => {
+    const me = await api.get<User>('/auth/me');
+    setUser(me);
+    refreshHousehold();
+  };
+
   return (
     <AuthContext.Provider value={{
       user, members, household, setupComplete,
-      setupHousehold, loginAs, switchUser, logout, resetForNewSignup, isLoading,
+      setupHousehold, loginAs, switchUser, logout, resetForNewSignup, refreshUser, isLoading,
     }}>
       {children}
     </AuthContext.Provider>

@@ -3,17 +3,19 @@ import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../features/auth/AuthContext';
 import { useGitHubSync } from '../../features/sync/GitHubSyncContext';
-import { api, User } from '../../lib/api';
+import { api, User, ApiError } from '../../lib/api';
 import { DayPicker } from '../DayPicker';
 import { InstallAppBanner } from '../InstallAppBanner';
+import { PinModal } from '../PinModal';
+import { toast } from '../Toaster';
 import {
   LayoutDashboard, CheckSquare, Receipt, Briefcase, Home, Settings,
-  Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star, HandCoins,
+  Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star, HandCoins, Users,
 } from 'lucide-react';
 import { supportsExpenseSplits } from '../../lib/household';
 
 const baseNavItems = [
-  { path: '/', label: 'Day planner', icon: LayoutDashboard },
+  { path: '/', label: 'My day', icon: LayoutDashboard, multiLabel: 'My day' },
   { path: '/tasks', label: 'All tasks', icon: CheckSquare },
   { path: '/daily', label: 'Daily life', icon: Sparkles },
   { path: '/vision', label: 'Vision board', icon: Star },
@@ -37,6 +39,10 @@ export function AppShell() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobileAddOpen, setMobileAddOpen] = useState(false);
+  const [switchOpen, setSwitchOpen] = useState(false);
+  const [pendingSwitchId, setPendingSwitchId] = useState<string | null>(null);
+  const [switchPinOpen, setSwitchPinOpen] = useState(false);
+  const [switchError, setSwitchError] = useState('');
 
   const { data: allMembers = members } = useQuery<User[]>({
     queryKey: ['users'],
@@ -47,6 +53,37 @@ export function AppShell() {
   const navItems = baseNavItems.filter(
     (item) => !item.splitOnly || supportsExpenseSplits(allMembers.length),
   );
+
+  const startSwitch = (memberId: string) => {
+    if (memberId === user?.id) {
+      setSwitchOpen(false);
+      return;
+    }
+    const target = allMembers.find((m) => m.id === memberId);
+    setPendingSwitchId(memberId);
+    setSwitchOpen(false);
+    setSwitchError('');
+    if (target?.hasPin) {
+      setSwitchPinOpen(true);
+    } else {
+      switchUser(memberId).catch((err) => {
+        toast.error(err instanceof ApiError ? err.message : 'Could not switch account');
+      });
+      setPendingSwitchId(null);
+    }
+  };
+
+  const completeSwitchWithPin = async (pin: string) => {
+    if (!pendingSwitchId) return;
+    try {
+      await switchUser(pendingSwitchId, pin);
+      setSwitchPinOpen(false);
+      setPendingSwitchId(null);
+    } catch (err: any) {
+      setSwitchError(err instanceof ApiError ? err.message : 'Wrong PIN');
+      throw err;
+    }
+  };
 
   const NavLink = ({ item, onClick }: { item: typeof baseNavItems[0]; onClick?: () => void }) => {
     const Icon = item.icon;
@@ -144,23 +181,34 @@ export function AppShell() {
                 <CloudOff size={14} /> Offline
               </span>
             )}
-            <div className="flex-1 min-w-0 overflow-x-auto">
-              <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 min-w-max">
-                {allMembers.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => switchUser(m.id)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
-                      user?.id === m.id ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
-                    }`}
+            <div className="flex-1 min-w-0 flex justify-end">
+              {allMembers.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => setSwitchOpen(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gray-100 text-xs font-medium text-gray-700 hover:bg-gray-200 max-w-[180px]"
+                  title="Switch account"
+                >
+                  <span
+                    className="w-6 h-6 rounded-full text-white text-[10px] flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: user?.color }}
                   >
-                    <span className="w-5 h-5 rounded-full text-white text-[10px] flex items-center justify-center shrink-0" style={{ backgroundColor: m.color }}>
-                      {m.name[0]}
-                    </span>
-                    <span className="hidden sm:inline max-w-[80px] truncate">{m.name}</span>
-                  </button>
-                ))}
-              </div>
+                    {user?.name?.[0]}
+                  </span>
+                  <span className="truncate hidden sm:inline">{user?.name}</span>
+                  <Users size={14} className="shrink-0 text-gray-400" />
+                </button>
+              ) : (
+                <div className="flex items-center gap-2 px-2 text-xs text-gray-500">
+                  <span
+                    className="w-6 h-6 rounded-full text-white text-[10px] flex items-center justify-center"
+                    style={{ backgroundColor: user?.color }}
+                  >
+                    {user?.name?.[0]}
+                  </span>
+                  <span className="hidden sm:inline">{user?.name}</span>
+                </div>
+              )}
             </div>
             <button onClick={logout} className="lg:hidden p-2 text-gray-400 hover:text-red-500 shrink-0" title="Log out">
               <LogOut size={16} />
@@ -231,6 +279,56 @@ export function AppShell() {
             <button onClick={() => setMobileAddOpen(false)} className="w-full mt-4 py-2.5 text-gray-500 text-sm">Cancel</button>
           </div>
         </div>
+      )}
+
+      {switchOpen && (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
+          <div className="fixed inset-0 bg-black/50" onClick={() => setSwitchOpen(false)} />
+          <div className="relative bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl shadow-xl z-10 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Switch account</h2>
+              <button type="button" onClick={() => setSwitchOpen(false)}><X size={20} /></button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">Choose who is using DayLife on this device.</p>
+            <div className="space-y-2">
+              {allMembers.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => startSwitch(m.id)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left ${
+                    m.id === user?.id ? 'border-brand-300 bg-brand-50' : 'hover:bg-gray-50'
+                  }`}
+                >
+                  <span
+                    className="w-9 h-9 rounded-full text-white text-sm flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: m.color }}
+                  >
+                    {m.name[0]}
+                  </span>
+                  <span className="font-medium flex-1">{m.name}</span>
+                  {m.hasPin && <span className="text-xs text-gray-400">PIN</span>}
+                  {m.id === user?.id && <span className="text-xs text-brand-600">Active</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {switchPinOpen && pendingSwitchId && (
+        <PinModal
+          title="Enter PIN"
+          subtitle={allMembers.find((m) => m.id === pendingSwitchId)?.name}
+          submitLabel="Switch"
+          onClose={() => {
+            setSwitchPinOpen(false);
+            setPendingSwitchId(null);
+            setSwitchError('');
+          }}
+          onSubmit={completeSwitchWithPin}
+          error={switchError}
+        />
       )}
     </div>
   );

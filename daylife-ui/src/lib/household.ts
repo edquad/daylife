@@ -55,4 +55,5 @@ export interface SetupPayload {
   householdName?: string;
   partnerName?: string;
   memberNames?: string[];
+  pin?: string;
 }

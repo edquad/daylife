@@ -12,9 +12,10 @@ interface PersonDayColumnProps {
   tasks: Task[];
   selectedDate: string;
   showCompleted?: boolean;
+  highlight?: boolean;
 }
 
-export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = true }: PersonDayColumnProps) {
+export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = true, highlight }: PersonDayColumnProps) {
   const queryClient = useQueryClient();
   const [newTitle, setNewTitle] = useState('');
   const [area, setArea] = useState<Task['area']>('PERSONAL');
@@ -103,7 +104,7 @@ export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = t
   };
 
   return (
-    <section className="bg-white rounded-2xl border shadow-sm flex flex-col min-h-[420px]">
+    <section className={cn('bg-white rounded-2xl border shadow-sm flex flex-col min-h-[420px]', highlight && 'ring-2 ring-brand-200')}>
       <div className="p-4 border-b">
         <div className="flex items-center gap-3 mb-3">
           <div
