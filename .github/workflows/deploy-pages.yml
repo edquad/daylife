@@ -39,6 +39,9 @@ jobs:
           REPO_NAME: ${{ github.event.repository.name }}
           VITE_GITHUB_SYNC_TOKEN: ${{ secrets.DAYLIFE_SYNC_TOKEN }}
 
+      - name: SPA fallback for GitHub Pages routes
+        run: cp daylife-ui/dist/index.html daylife-ui/dist/404.html
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: daylife-ui/dist

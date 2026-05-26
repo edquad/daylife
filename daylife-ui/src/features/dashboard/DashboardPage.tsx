@@ -168,7 +168,7 @@ export function DashboardPage() {
         </Link>
       </div>
 
-      {visionItems.length > 0 && (
+      {visionItems.length > 0 ? (
         <Link
           to="/vision"
           className="block bg-gradient-to-r from-violet-50 to-fuchsia-50 border border-violet-100 rounded-2xl p-4 hover:border-violet-200 transition-colors"
@@ -186,6 +186,19 @@ export function DashboardPage() {
               </span>
             ))}
           </div>
+        </Link>
+      ) : (
+        <Link
+          to="/vision"
+          className="flex items-center justify-between bg-gradient-to-r from-violet-50 to-fuchsia-50 border border-violet-100 rounded-2xl p-4 hover:border-violet-200 transition-colors"
+        >
+          <div>
+            <h3 className="font-semibold flex items-center gap-2 text-violet-900">
+              <Star size={16} className="text-violet-600" /> Vision board
+            </h3>
+            <p className="text-sm text-violet-700 mt-1">Add dreams, goals & photos — synced for you both</p>
+          </div>
+          <span className="text-sm text-violet-600 shrink-0">Start →</span>
         </Link>
       )}
 

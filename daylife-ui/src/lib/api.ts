@@ -1020,7 +1020,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
   // Vision board
   if (route === '/vision-board' && method === 'GET') {
     const ownerId = q.get('ownerId');
-    let items = [...data.visionBoard];
+    let items = [...(data.visionBoard ?? [])];
     if (ownerId === 'shared') items = items.filter((i) => !i.ownerId);
     else if (ownerId) items = items.filter((i) => i.ownerId === ownerId);
     const achieved = q.get('achieved');
@@ -1057,6 +1057,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       createdById: sessionId!,
       createdAt: new Date().toISOString(),
     };
+    if (!data.visionBoard) data.visionBoard = [];
     data.visionBoard.push(item);
     saveData(data);
     return enrichVision(data, item) as T;
@@ -1064,6 +1065,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
 
   const visionMatch = route.match(/^\/vision-board\/([^/]+)(\/achieve)?$/);
   if (visionMatch) {
+    if (!data.visionBoard) data.visionBoard = [];
     const idx = data.visionBoard.findIndex((i) => i.id === visionMatch[1]);
     if (idx < 0) throw new ApiError(404, 'Vision card not found');
     if (visionMatch[2] === '/achieve' && method === 'PATCH') {

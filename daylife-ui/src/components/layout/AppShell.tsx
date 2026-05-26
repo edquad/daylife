@@ -205,6 +205,7 @@ export function AppShell() {
                 { label: 'Add task', path: '/tasks?add=true', icon: CheckSquare },
                 { label: 'Log expense', path: '/expenses?add=true', icon: Receipt },
                 { label: 'Shopping list', path: '/daily?tab=shopping', icon: Sparkles },
+                { label: 'Vision board', path: '/vision', icon: Star },
                 { label: 'Work note', path: '/work?add=true', icon: Briefcase },
                 { label: 'Home chore', path: '/home?add=true', icon: Home },
               ].map((action) => {
