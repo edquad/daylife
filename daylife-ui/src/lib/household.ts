@@ -33,6 +33,10 @@ export function canManageMembers(householdType?: HouseholdType): boolean {
   return householdType === 'FAMILY' || householdType === 'GROUP';
 }
 
+export function canAddPartner(householdType?: HouseholdType, memberCount = 0): boolean {
+  return householdType === 'SINGLE' && memberCount === 1;
+}
+
 export function supportsExpenseSplits(memberCount: number): boolean {
   return memberCount >= 2;
 }

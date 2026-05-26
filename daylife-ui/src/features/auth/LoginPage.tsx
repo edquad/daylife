@@ -192,14 +192,32 @@ export function LoginPage() {
                   )}
                 >
                   <UserPlus size={18} />
-                  {hasExistingHousehold ? 'Create new household' : 'Sign up'}
+                  {hasExistingHousehold ? 'Start over (deletes all data)' : 'Sign up'}
                 </button>
 
-                {hasExistingHousehold && (
+                {hasExistingHousehold && members.length === 1 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <p className="font-medium">Only {members[0].name} is set up so far.</p>
+                    <p className="mt-1 text-amber-800">
+                      If that&apos;s you, tap <strong>Log in</strong>. If not, ask {members[0].name} to open{' '}
+                      <strong>Settings → People → Add partner</strong> with your name — then you can log in as yourself.
+                    </p>
+                    <p className="mt-2 text-xs text-amber-700">
+                      Don&apos;t use &quot;Start over&quot; unless you want to delete everyone&apos;s data.
+                    </p>
+                  </div>
+                )}
+
+                {hasExistingHousehold && members.length > 1 && (
                   <p className="text-center text-xs text-gray-400 pt-2">
                     {household?.householdName || HOUSEHOLD_TYPE_LABELS[householdTypeKey]}
-                    {' · '}{members.length} {members.length === 1 ? 'person' : 'people'}
-                    {' · '}{members.map((m) => m.name).join(', ')}
+                    {' · '}{members.length} people: {members.map((m) => m.name).join(', ')}
+                  </p>
+                )}
+
+                {hasExistingHousehold && members.length === 1 && (
+                  <p className="text-center text-xs text-gray-400 pt-2">
+                    {HOUSEHOLD_TYPE_LABELS[householdTypeKey]} · 1 person · {members[0].name}
                   </p>
                 )}
               </div>
@@ -218,7 +236,15 @@ export function LoginPage() {
                 <ChevronLeft size={16} /> Back
               </button>
               <h2 className="text-lg font-semibold mb-1">Log in</h2>
-              <p className="text-sm text-gray-500 mb-5">Choose your account and continue</p>
+              <p className="text-sm text-gray-500 mb-5">
+                Pick your name — you and {members.length === 1 ? 'your partner' : 'others'} share one household, but each person logs in separately.
+              </p>
+
+              {members.length === 1 && (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  Don&apos;t see your name? Ask <strong>{members[0].name}</strong> to add you in Settings → People → Add partner.
+                </div>
+              )}
 
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>

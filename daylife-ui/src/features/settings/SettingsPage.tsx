@@ -7,6 +7,7 @@ import { exportData, importData } from '../../lib/storage';
 import {
   HOUSEHOLD_TYPE_LABELS,
   canManageMembers,
+  canAddPartner,
   roleLabel,
   MAX_HOUSEHOLD_SIZE,
   type HouseholdType,
@@ -54,11 +55,15 @@ export function SettingsPage() {
 
   const addMember = useMutation({
     mutationFn: () => api.post<User>('/users', { name: newMemberName.trim() }),
-    onSuccess: () => {
+    onSuccess: (added) => {
       setNewMemberName('');
       queryClient.invalidateQueries({ queryKey: ['users'] });
       queryClient.invalidateQueries({ queryKey: ['household'] });
-      toast.success('Family member added');
+      toast.success(
+        canAddPartner(householdType, members.length)
+          ? `${added.name} added — you can both log in now`
+          : 'Family member added',
+      );
     },
     onError: (err: any) => toast.error(err.message),
   });
@@ -236,7 +241,30 @@ export function SettingsPage() {
           </div>
         )}
 
-        {!canManageMembers(householdType) && (
+        {canAddPartner(householdType, members.length) && user?.role === 'OWNER' && (
+          <div className="pt-2 space-y-2">
+            <p className="text-sm text-gray-600">
+              Only you are on this account. Add your partner so they can log in as themselves on their phone — same shared shopping & splits, private tasks with a PIN.
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={newMemberName}
+                onChange={(e) => setNewMemberName(e.target.value)}
+                placeholder="Partner's name"
+                className="flex-1 px-3 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-500"
+              />
+              <button
+                onClick={() => newMemberName.trim() && addMember.mutate()}
+                disabled={!newMemberName.trim() || addMember.isPending}
+                className="flex items-center gap-1 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
+              >
+                <UserPlus size={16} /> Add partner
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!canManageMembers(householdType) && !canAddPartner(householdType, members.length) && (
           <p className="text-sm text-gray-500">
             To switch between single / couple / family / group, export your data, clear all, and set up again.
           </p>

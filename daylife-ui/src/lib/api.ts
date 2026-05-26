@@ -951,13 +951,25 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
 
   if (route === '/users' && method === 'POST') {
     const { name } = body as { name: string };
-    if (data.householdType !== 'FAMILY' && data.householdType !== 'GROUP') {
-      throw new ApiError(403, 'Can only add members to a family or group household');
-    }
-    if (data.users.length >= MAX_HOUSEHOLD_SIZE) {
-      throw new ApiError(400, `Maximum ${MAX_HOUSEHOLD_SIZE} people`);
-    }
     if (!name?.trim()) throw new ApiError(400, 'Name is required');
+
+    if (data.householdType === 'SINGLE' && data.users.length === 1) {
+      const partner: User = {
+        id: uid(),
+        email: `${name.toLowerCase().replace(/\s+/g, '')}-partner@local`,
+        name: name.trim(),
+        role: 'PARTNER',
+        color: nextMemberColor(data.users.map((u) => u.color)),
+      };
+      data.users.push(partner);
+      data.householdType = 'COUPLE';
+      saveData(data);
+      return publicUser(partner) as T;
+    }
+
+    if (data.householdType !== 'FAMILY' && data.householdType !== 'GROUP') {
+      throw new ApiError(403, 'Ask the person who set up DayLife to add you in Settings → People');
+    }
     const member: User = {
       id: uid(),
       email: `${name.toLowerCase().replace(/\s+/g, '')}-${data.users.length}@local`,
