@@ -6,6 +6,7 @@ import { api, User, HouseholdInfo } from '../../lib/api';
 import { exportData, importData } from '../../lib/storage';
 import {
   HOUSEHOLD_TYPE_LABELS,
+  canManageMembers,
   roleLabel,
   MAX_HOUSEHOLD_SIZE,
   type HouseholdType,
@@ -128,6 +129,7 @@ export function SettingsPage() {
           {householdType === 'SINGLE' && 'You manage everything on your own.'}
           {householdType === 'COUPLE' && 'Two people — each gets their own daily column.'}
           {householdType === 'FAMILY' && `${members.length} people in your household.`}
+          {householdType === 'GROUP' && `${members.length} people in your group — split expenses & settle up.`}
         </p>
       </section>
 
@@ -162,7 +164,7 @@ export function SettingsPage() {
                 <p className="font-medium truncate">{m.name}{m.id === user?.id ? ' (you)' : ''}</p>
                 <p className="text-xs text-gray-400">{roleLabel(m.role, householdType)}</p>
               </div>
-              {householdType === 'FAMILY' && m.role !== 'OWNER' && (
+              {canManageMembers(householdType) && m.role !== 'OWNER' && (
                 <button
                   onClick={() => removeMember.mutate(m.id)}
                   className="p-2 text-gray-400 hover:text-red-500"
@@ -175,12 +177,12 @@ export function SettingsPage() {
           ))}
         </div>
 
-        {householdType === 'FAMILY' && members.length < MAX_HOUSEHOLD_SIZE && (
+        {canManageMembers(householdType) && members.length < MAX_HOUSEHOLD_SIZE && (
           <div className="flex gap-2 pt-2">
             <input
               value={newMemberName}
               onChange={(e) => setNewMemberName(e.target.value)}
-              placeholder="New family member name"
+              placeholder={householdType === 'GROUP' ? 'New group member name' : 'New family member name'}
               className="flex-1 px-3 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-500"
             />
             <button
@@ -193,9 +195,9 @@ export function SettingsPage() {
           </div>
         )}
 
-        {householdType !== 'FAMILY' && (
+        {!canManageMembers(householdType) && (
           <p className="text-sm text-gray-500">
-            To switch between single / couple / family, export your data, clear all, and set up again.
+            To switch between single / couple / family / group, export your data, clear all, and set up again.
           </p>
         )}
         <button onClick={logout}

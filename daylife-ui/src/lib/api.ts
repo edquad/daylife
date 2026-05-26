@@ -16,6 +16,13 @@ import {
   MAX_HOUSEHOLD_SIZE,
   nextMemberColor,
 } from './household';
+import {
+  computeNetBalances,
+  computeSplitShares,
+  formatBalance,
+  getExpenseShares,
+  simplifyDebts,
+} from './splits';
 
 export class ApiError extends Error {
   constructor(
@@ -50,6 +57,21 @@ export interface Task {
   createdById?: string;
 }
 
+export type SplitMode = 'EQUAL' | 'EXACT';
+
+export interface StoredExpense {
+  id: string;
+  amount: string;
+  description?: string;
+  expenseDate: string;
+  categoryId: string;
+  paidById: string;
+  isShared?: boolean;
+  splitMode?: SplitMode;
+  participantIds?: string[];
+  shares?: Record<string, string>;
+}
+
 export interface Expense {
   id: string;
   amount: string;
@@ -57,6 +79,40 @@ export interface Expense {
   expenseDate: string;
   category: { id: string; name: string; color: string };
   paidBy: { id: string; name: string; color: string };
+  isShared?: boolean;
+  splitMode?: SplitMode;
+  participantIds?: string[];
+  participants?: Array<{ id: string; name: string; color: string }>;
+  shares?: Array<{ userId: string; name: string; amount: string }>;
+}
+
+export interface Settlement {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  amount: string;
+  settledAt: string;
+  note?: string;
+  createdById?: string;
+}
+
+export interface SettlementEnriched extends Settlement {
+  fromUser: { id: string; name: string; color: string };
+  toUser: { id: string; name: string; color: string };
+}
+
+export interface SplitBalancesResponse {
+  balances: Array<{ userId: string; name: string; color: string; balance: string }>;
+  debts: Array<{
+    fromUserId: string;
+    fromName: string;
+    fromColor: string;
+    toUserId: string;
+    toName: string;
+    toColor: string;
+    amount: string;
+  }>;
+  settlements: SettlementEnriched[];
 }
 
 export interface DailyNote {
@@ -205,6 +261,23 @@ function buildUsersFromSetup(payload: SetupPayload): User[] {
     });
   }
 
+  if (householdType === 'GROUP') {
+    const names = memberNames.map((n) => n.trim()).filter(Boolean);
+    if (names.length < 1) throw new ApiError(400, 'Add at least one group member');
+    if (names.length + 1 > MAX_HOUSEHOLD_SIZE) {
+      throw new ApiError(400, `Maximum ${MAX_HOUSEHOLD_SIZE} people in a group`);
+    }
+    names.forEach((memberName, index) => {
+      users.push({
+        id: uid(),
+        email: `${memberName.toLowerCase().replace(/\s+/g, '')}-g${index}@local`,
+        name: memberName,
+        role: 'MEMBER',
+        color: MEMBER_COLORS[(index + 1) % MEMBER_COLORS.length],
+      });
+    });
+  }
+
   void householdName;
   return users;
 }
@@ -227,10 +300,10 @@ function enrichTask(data: ReturnType<typeof loadData>, task: Task): Task {
   };
 }
 
-function enrichExpense(data: ReturnType<typeof loadData>, exp: Expense & { categoryId?: string; paidById?: string }): Expense {
-  const category = data.categories.find((c) => c.id === (exp as any).categoryId || c.id === exp.category?.id);
-  const paidBy = findUser(data, (exp as any).paidById || exp.paidBy?.id || '');
-  return {
+function enrichExpense(data: ReturnType<typeof loadData>, exp: StoredExpense): Expense {
+  const category = data.categories.find((c) => c.id === exp.categoryId);
+  const paidBy = findUser(data, exp.paidById || '');
+  const base: Expense = {
     id: exp.id,
     amount: exp.amount,
     description: exp.description,
@@ -238,6 +311,121 @@ function enrichExpense(data: ReturnType<typeof loadData>, exp: Expense & { categ
     category: category || { id: 'cat-other', name: 'Other', color: '#6B7280' },
     paidBy: paidBy ? userRef(paidBy) : { id: '', name: 'Unknown', color: '#6B7280' },
   };
+
+  if (!exp.isShared) return base;
+
+  const participantIds = exp.participantIds || [];
+  const participants = participantIds
+    .map((id) => findUser(data, id))
+    .filter(Boolean)
+    .map((u) => userRef(u!));
+
+  const shareRows = getExpenseShares(exp).map((share) => {
+    const user = findUser(data, share.userId);
+    return {
+      userId: share.userId,
+      name: user?.name || 'Unknown',
+      amount: share.amount.toFixed(2),
+    };
+  });
+
+  return {
+    ...base,
+    isShared: true,
+    splitMode: exp.splitMode || 'EQUAL',
+    participantIds,
+    participants,
+    shares: shareRows,
+  };
+}
+
+function enrichSettlement(data: ReturnType<typeof loadData>, settlement: Settlement): SettlementEnriched {
+  const fromUser = findUser(data, settlement.fromUserId);
+  const toUser = findUser(data, settlement.toUserId);
+  return {
+    ...settlement,
+    fromUser: fromUser ? userRef(fromUser) : { id: settlement.fromUserId, name: 'Unknown', color: '#6B7280' },
+    toUser: toUser ? userRef(toUser) : { id: settlement.toUserId, name: 'Unknown', color: '#6B7280' },
+  };
+}
+
+function splitBalances(data: ReturnType<typeof loadData>): SplitBalancesResponse {
+  if (!data.settlements) data.settlements = [];
+  const net = computeNetBalances(data.users, data.expenses, data.settlements);
+  const simplified = simplifyDebts(net);
+
+  return {
+    balances: data.users.map((user) => ({
+      userId: user.id,
+      name: user.name,
+      color: user.color,
+      balance: formatBalance(net[user.id] || 0),
+    })),
+    debts: simplified.map((debt) => {
+      const fromUser = findUser(data, debt.fromUserId)!;
+      const toUser = findUser(data, debt.toUserId)!;
+      return {
+        fromUserId: debt.fromUserId,
+        fromName: fromUser.name,
+        fromColor: fromUser.color,
+        toUserId: debt.toUserId,
+        toName: toUser.name,
+        toColor: toUser.color,
+        amount: debt.amount.toFixed(2),
+      };
+    }),
+    settlements: [...data.settlements]
+      .sort((a, b) => b.settledAt.localeCompare(a.settledAt))
+      .map((s) => enrichSettlement(data, s)),
+  };
+}
+
+function applySplitFields(
+  exp: StoredExpense,
+  body: {
+    isShared?: boolean;
+    splitMode?: SplitMode;
+    participantIds?: string[];
+    shares?: Record<string, string>;
+  },
+  allUserIds: string[],
+  amount: number,
+): void {
+  if (!body.isShared) {
+    exp.isShared = false;
+    delete exp.splitMode;
+    delete exp.participantIds;
+    delete exp.shares;
+    return;
+  }
+
+  const participantIds = (body.participantIds?.length ? body.participantIds : allUserIds).filter((id) =>
+    allUserIds.includes(id),
+  );
+  if (participantIds.length < 2) {
+    throw new ApiError(400, 'Pick at least two people to split between');
+  }
+
+  const splitMode = body.splitMode || 'EQUAL';
+  exp.isShared = true;
+  exp.splitMode = splitMode;
+  exp.participantIds = participantIds;
+
+  if (splitMode === 'EXACT') {
+    if (!body.shares) throw new ApiError(400, 'Enter each person’s share');
+    const totalShares = participantIds.reduce((sum, id) => sum + parseFloat(body.shares![id] || '0'), 0);
+    if (Math.abs(totalShares - amount) > 0.02) {
+      throw new ApiError(400, 'Custom shares must add up to the expense total');
+    }
+    exp.shares = Object.fromEntries(participantIds.map((id) => [id, parseFloat(body.shares![id] || '0').toFixed(2)]));
+  } else {
+    delete exp.shares;
+    const preview = computeSplitShares(amount, 'EQUAL', participantIds);
+    const previewTotal = preview.reduce((sum, row) => sum + row.amount, 0);
+    if (Math.abs(previewTotal - amount) > 0.02) {
+      throw new ApiError(400, 'Could not split expense evenly');
+    }
+  }
 }
 
 function enrichNote(data: ReturnType<typeof loadData>, note: DailyNote & { authorId?: string }): DailyNote {
@@ -318,12 +506,12 @@ function filterExpenses(data: ReturnType<typeof loadData>, q: URLSearchParams) {
   if (year) expenses = expenses.filter((e) => e.expenseDate.slice(0, 4) === year);
   if (from) expenses = expenses.filter((e) => e.expenseDate.slice(0, 10) >= from);
   if (to) expenses = expenses.filter((e) => e.expenseDate.slice(0, 10) <= to);
-  if (categoryId) expenses = expenses.filter((e) => (e as any).categoryId === categoryId);
-  if (paidById) expenses = expenses.filter((e) => (e as any).paidById === paidById);
+  if (categoryId) expenses = expenses.filter((e) => e.categoryId === categoryId);
+  if (paidById) expenses = expenses.filter((e) => e.paidById === paidById);
   if (search?.trim()) {
     const s = search.trim().toLowerCase();
     expenses = expenses.filter((e) => {
-      const enriched = enrichExpense(data, e as any);
+      const enriched = enrichExpense(data, e);
       return (
         e.description?.toLowerCase().includes(s) ||
         enriched.category.name.toLowerCase().includes(s)
@@ -333,7 +521,7 @@ function filterExpenses(data: ReturnType<typeof loadData>, q: URLSearchParams) {
 
   expenses.sort((a, b) => b.expenseDate.localeCompare(a.expenseDate));
   const limit = parseInt(q.get('limit') || '50', 10);
-  return expenses.slice(0, limit).map((e) => enrichExpense(data, e as any));
+  return expenses.slice(0, limit).map((e) => enrichExpense(data, e));
 }
 
 type ReportPeriod = 'daily' | 'monthly' | 'yearly';
@@ -366,12 +554,12 @@ function expenseReport(data: ReturnType<typeof loadData>, q: URLSearchParams) {
   const categoryId = q.get('categoryId');
   const paidById = q.get('paidById');
   const search = q.get('search');
-  if (categoryId) expenses = expenses.filter((e) => (e as any).categoryId === categoryId);
-  if (paidById) expenses = expenses.filter((e) => (e as any).paidById === paidById);
+  if (categoryId) expenses = expenses.filter((e) => e.categoryId === categoryId);
+  if (paidById) expenses = expenses.filter((e) => e.paidById === paidById);
   if (search?.trim()) {
     const s = search.trim().toLowerCase();
     expenses = expenses.filter((e) => {
-      const enriched = enrichExpense(data, e as any);
+      const enriched = enrichExpense(data, e);
       return (
         e.description?.toLowerCase().includes(s) ||
         enriched.category.name.toLowerCase().includes(s)
@@ -380,7 +568,7 @@ function expenseReport(data: ReturnType<typeof loadData>, q: URLSearchParams) {
   }
 
   expenses.sort((a, b) => b.expenseDate.localeCompare(a.expenseDate));
-  const enriched = expenses.map((e) => enrichExpense(data, e as any));
+  const enriched = expenses.map((e) => enrichExpense(data, e));
   const total = enriched.reduce((sum, e) => sum + parseFloat(e.amount), 0);
 
   const categoryMap = new Map<string, { id: string; name: string; color: string; total: number; count: number }>();
@@ -528,7 +716,7 @@ function dashboardSummary(data: ReturnType<typeof loadData>, dateParam?: string)
 
   const dayExpenses = data.expenses
     .filter((e) => e.expenseDate.slice(0, 10) === day)
-    .map((e) => enrichExpense(data, e as any));
+    .map((e) => enrichExpense(data, e));
 
   const monthExpenses = data.expenses.filter((e) => e.expenseDate.slice(0, 7) === monthPrefix);
   const monthTotal = monthExpenses.reduce((s, e) => s + parseFloat(e.amount), 0);
@@ -617,6 +805,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     data.users = users;
     data.householdType = payload.householdType;
     data.householdName = payload.householdName?.trim() || undefined;
+    data.settlements = [];
     data.setupComplete = true;
     saveData(data);
     setSessionUserId(users[0].id);
@@ -658,8 +847,8 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
 
   if (route === '/users' && method === 'POST') {
     const { name } = body as { name: string };
-    if (data.householdType !== 'FAMILY') {
-      throw new ApiError(403, 'Can only add members to a family household');
+    if (data.householdType !== 'FAMILY' && data.householdType !== 'GROUP') {
+      throw new ApiError(403, 'Can only add members to a family or group household');
     }
     if (data.users.length >= MAX_HOUSEHOLD_SIZE) {
       throw new ApiError(400, `Maximum ${MAX_HOUSEHOLD_SIZE} people`);
@@ -683,12 +872,29 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     const user = data.users.find((u) => u.id === id);
     if (!user) throw new ApiError(404, 'User not found');
     if (user.role === 'OWNER') throw new ApiError(403, 'Cannot remove the owner');
-    if (data.householdType !== 'FAMILY') throw new ApiError(403, 'Only family households can remove members');
+    if (data.householdType !== 'FAMILY' && data.householdType !== 'GROUP') {
+      throw new ApiError(403, 'Only family or group households can remove members');
+    }
     data.users = data.users.filter((u) => u.id !== id);
+    const fallbackUser = data.users.find((u) => u.role === 'OWNER') || data.users[0];
     data.tasks = data.tasks.map((t) => ({
       ...t,
       assigneeId: t.assigneeId === id ? undefined : t.assigneeId,
     }));
+    data.expenses = data.expenses.map((e) => {
+      const participantIds = e.participantIds?.filter((pid) => pid !== id);
+      return {
+        ...e,
+        paidById: e.paidById === id ? fallbackUser.id : e.paidById,
+        participantIds,
+        shares: e.shares
+          ? Object.fromEntries(Object.entries(e.shares).filter(([pid]) => pid !== id))
+          : undefined,
+        isShared: participantIds && participantIds.length >= 2 ? e.isShared : false,
+      };
+    });
+    if (!data.settlements) data.settlements = [];
+    data.settlements = data.settlements.filter((s) => s.fromUserId !== id && s.toUserId !== id);
     saveData(data);
     return undefined as T;
   }
@@ -776,14 +982,69 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     return expenseReport(data, q) as T;
   }
 
+  if (route === '/splits/balances' && method === 'GET') {
+    return splitBalances(data) as T;
+  }
+
+  if (route === '/splits/settlements' && method === 'GET') {
+    if (!data.settlements) data.settlements = [];
+    return data.settlements
+      .slice()
+      .sort((a, b) => b.settledAt.localeCompare(a.settledAt))
+      .map((s) => enrichSettlement(data, s)) as T;
+  }
+
+  if (route === '/splits/settlements' && method === 'POST') {
+    const b = body as { fromUserId: string; toUserId: string; amount: number; note?: string; settledAt?: string };
+    if (!b.fromUserId || !b.toUserId) throw new ApiError(400, 'Choose who paid and who received');
+    if (b.fromUserId === b.toUserId) throw new ApiError(400, 'Choose two different people');
+    if (!b.amount || b.amount <= 0) throw new ApiError(400, 'Enter a valid amount');
+    if (!findUser(data, b.fromUserId) || !findUser(data, b.toUserId)) {
+      throw new ApiError(400, 'Invalid member selected');
+    }
+    if (!data.settlements) data.settlements = [];
+    const settlement: Settlement = {
+      id: uid(),
+      fromUserId: b.fromUserId,
+      toUserId: b.toUserId,
+      amount: b.amount.toFixed(2),
+      settledAt: b.settledAt || todayISO(),
+      note: b.note?.trim() || undefined,
+      createdById: sessionId!,
+    };
+    data.settlements.push(settlement);
+    saveData(data);
+    return enrichSettlement(data, settlement) as T;
+  }
+
+  const settlementMatch = route.match(/^\/splits\/settlements\/([^/]+)$/);
+  if (settlementMatch && method === 'DELETE') {
+    if (!data.settlements) data.settlements = [];
+    const idx = data.settlements.findIndex((s) => s.id === settlementMatch[1]);
+    if (idx < 0) throw new ApiError(404, 'Settlement not found');
+    data.settlements.splice(idx, 1);
+    saveData(data);
+    return undefined as T;
+  }
+
   if (route === '/expenses' && method === 'GET') {
     const list = filterExpenses(data, q);
     return { data: list, total: list.length, page: 1, limit: list.length } as T;
   }
 
   if (route === '/expenses' && method === 'POST') {
-    const b = body as { amount: number; description?: string; categoryId: string; expenseDate: string; paidById?: string };
-    const exp = {
+    const b = body as {
+      amount: number;
+      description?: string;
+      categoryId: string;
+      expenseDate: string;
+      paidById?: string;
+      isShared?: boolean;
+      splitMode?: SplitMode;
+      participantIds?: string[];
+      shares?: Record<string, string>;
+    };
+    const exp: StoredExpense = {
       id: uid(),
       amount: b.amount.toFixed(2),
       description: b.description,
@@ -791,9 +1052,10 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       expenseDate: b.expenseDate,
       paidById: b.paidById || sessionId!,
     };
-    data.expenses.push(exp as any);
+    applySplitFields(exp, b, data.users.map((u) => u.id), b.amount);
+    data.expenses.push(exp);
     saveData(data);
-    return enrichExpense(data, exp as any) as T;
+    return enrichExpense(data, exp) as T;
   }
 
   const expMatch = route.match(/^\/expenses\/([^/]+)$/);
@@ -801,13 +1063,37 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     const idx = data.expenses.findIndex((e) => e.id === expMatch[1]);
     if (idx < 0) throw new ApiError(404, 'Expense not found');
     if (method === 'PUT') {
-      const b = body as { amount?: number; description?: string; categoryId?: string; expenseDate?: string; paidById?: string };
-      const e = data.expenses[idx] as any;
+      const b = body as {
+        amount?: number;
+        description?: string;
+        categoryId?: string;
+        expenseDate?: string;
+        paidById?: string;
+        isShared?: boolean;
+        splitMode?: SplitMode;
+        participantIds?: string[];
+        shares?: Record<string, string>;
+      };
+      const e = data.expenses[idx];
+      const amount = b.amount != null ? b.amount : parseFloat(e.amount);
       if (b.amount != null) e.amount = b.amount.toFixed(2);
       if (b.description !== undefined) e.description = b.description;
       if (b.categoryId) e.categoryId = b.categoryId;
       if (b.expenseDate) e.expenseDate = b.expenseDate;
       if (b.paidById) e.paidById = b.paidById;
+      if (b.isShared !== undefined || b.splitMode || b.participantIds || b.shares) {
+        applySplitFields(
+          e,
+          {
+            isShared: b.isShared ?? e.isShared,
+            splitMode: b.splitMode ?? e.splitMode,
+            participantIds: b.participantIds ?? e.participantIds,
+            shares: b.shares ?? e.shares,
+          },
+          data.users.map((u) => u.id),
+          amount,
+        );
+      }
       saveData(data);
       return enrichExpense(data, e) as T;
     }

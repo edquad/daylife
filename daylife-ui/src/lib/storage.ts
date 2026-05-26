@@ -1,7 +1,7 @@
 import type {
   User,
   Task,
-  Expense,
+  StoredExpense,
   DailyNote,
   ExpenseCategory,
   ShoppingItem,
@@ -9,6 +9,7 @@ import type {
   RoutineDayLog,
   Reminder,
   VisionBoardItem,
+  Settlement,
 } from './api';
 import type { HouseholdType } from './household';
 
@@ -18,7 +19,7 @@ const SESSION_KEY = 'daylife_session';
 export interface AppData {
   users: User[];
   tasks: Task[];
-  expenses: Expense[];
+  expenses: StoredExpense[];
   notes: DailyNote[];
   categories: ExpenseCategory[];
   shoppingItems: ShoppingItem[];
@@ -26,6 +27,7 @@ export interface AppData {
   routineLogs: RoutineDayLog[];
   reminders: Reminder[];
   visionBoard: VisionBoardItem[];
+  settlements: Settlement[];
   setupComplete: boolean;
   householdType?: HouseholdType;
   householdName?: string;
@@ -94,6 +96,7 @@ function emptyData(): AppData {
     routineLogs: [],
     reminders: [],
     visionBoard: [],
+    settlements: [],
     setupComplete: false,
   };
 }
@@ -108,6 +111,7 @@ export function normalizeAppData(parsed: Partial<AppData>): AppData {
     routineLogs: parsed.routineLogs ?? [],
     reminders: parsed.reminders ?? [],
     visionBoard: parsed.visionBoard ?? [],
+    settlements: parsed.settlements ?? [],
   };
   const resolvedType = resolveHouseholdType(merged);
   if (merged.householdType !== resolvedType) {

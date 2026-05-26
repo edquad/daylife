@@ -10,6 +10,7 @@ import { DashboardPage } from './features/dashboard/DashboardPage';
 import { TasksPage } from './features/tasks/TasksPage';
 import { ExpensesPage } from './features/expenses/ExpensesPage';
 import { ExpenseReportsPage } from './features/expenses/ExpenseReportsPage';
+import { SplitBalancesPage } from './features/expenses/SplitBalancesPage';
 import { DailyLifePage } from './features/daily/DailyLifePage';
 import { VisionBoardPage } from './features/vision/VisionBoardPage';
 import { WorkPage } from './features/work/WorkPage';
@@ -54,6 +55,7 @@ export default function App() {
               <Route index element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
               <Route path="tasks" element={<ErrorBoundary><TasksPage /></ErrorBoundary>} />
               <Route path="expenses" element={<ErrorBoundary><ExpensesPage /></ErrorBoundary>} />
+              <Route path="splits" element={<ErrorBoundary><SplitBalancesPage /></ErrorBoundary>} />
               <Route path="reports" element={<ErrorBoundary><ExpenseReportsPage /></ErrorBoundary>} />
               <Route path="daily" element={<ErrorBoundary><DailyLifePage /></ErrorBoundary>} />
               <Route path="vision" element={<ErrorBoundary><VisionBoardPage /></ErrorBoundary>} />

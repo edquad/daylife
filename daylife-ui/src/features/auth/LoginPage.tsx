@@ -8,7 +8,7 @@ import {
   MAX_HOUSEHOLD_SIZE,
   roleLabel,
 } from '../../lib/household';
-import { Heart, User, Users, ChevronLeft, Plus, Trash2, LogIn, UserPlus } from 'lucide-react';
+import { Heart, User, Users, ChevronLeft, Plus, Trash2, LogIn, UserPlus, HandCoins } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 type Screen = 'welcome' | 'login' | 'signup-type' | 'signup-details';
@@ -17,6 +17,7 @@ const TYPE_OPTIONS: { type: HouseholdType; icon: typeof User; accent: string }[]
   { type: 'SINGLE', icon: User, accent: 'border-brand-200 bg-brand-50 hover:border-brand-400' },
   { type: 'COUPLE', icon: Heart, accent: 'border-accent-200 bg-accent-50 hover:border-accent-400' },
   { type: 'FAMILY', icon: Users, accent: 'border-green-200 bg-green-50 hover:border-green-400' },
+  { type: 'GROUP', icon: HandCoins, accent: 'border-violet-200 bg-violet-50 hover:border-violet-400' },
 ];
 
 export function LoginPage() {
@@ -62,9 +63,9 @@ export function LoginPage() {
       await setupHousehold({
         householdType,
         name: yourName.trim(),
-        householdName: householdType === 'FAMILY' ? householdName.trim() : undefined,
+        householdName: householdType === 'FAMILY' || householdType === 'GROUP' ? householdName.trim() : undefined,
         partnerName: householdType === 'COUPLE' ? partnerName.trim() : undefined,
-        memberNames: householdType === 'FAMILY' ? familyMembers : undefined,
+        memberNames: householdType === 'FAMILY' || householdType === 'GROUP' ? familyMembers : undefined,
       });
     } catch (err: any) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong');
@@ -94,7 +95,8 @@ export function LoginPage() {
     yourName.trim() &&
     (householdType === 'SINGLE' ||
       (householdType === 'COUPLE' && partnerName.trim()) ||
-      (householdType === 'FAMILY' && familyMembers.some((m) => m.trim())));
+      (householdType === 'FAMILY' && familyMembers.some((m) => m.trim())) ||
+      (householdType === 'GROUP' && familyMembers.some((m) => m.trim())));
 
   const handleStartSignup = () => {
     if (setupComplete) {
@@ -323,20 +325,24 @@ export function LoginPage() {
                   </div>
                 )}
 
-                {householdType === 'FAMILY' && (
+                {(householdType === 'FAMILY' || householdType === 'GROUP') && (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Family name (optional)</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {householdType === 'GROUP' ? 'Group name (optional)' : 'Family name (optional)'}
+                      </label>
                       <input
                         type="text"
                         value={householdName}
                         onChange={(e) => setHouseholdName(e.target.value)}
-                        placeholder="The Sharma Family"
+                        placeholder={householdType === 'GROUP' ? 'Trip to Goa' : 'The Sharma Family'}
                         className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Family members</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        {householdType === 'GROUP' ? 'Group members' : 'Family members'}
+                      </label>
                       <div className="space-y-2">
                         {familyMembers.map((member, index) => (
                           <div key={index} className="flex gap-2">
@@ -344,7 +350,7 @@ export function LoginPage() {
                               type="text"
                               value={member}
                               onChange={(e) => updateFamilyMember(index, e.target.value)}
-                              placeholder={index === 0 ? 'Partner' : `Member ${index + 1}`}
+                              placeholder={householdType === 'GROUP' ? `Member ${index + 1}` : index === 0 ? 'Partner' : `Member ${index + 1}`}
                               className="flex-1 px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none text-sm"
                             />
                             {familyMembers.length > 1 && (

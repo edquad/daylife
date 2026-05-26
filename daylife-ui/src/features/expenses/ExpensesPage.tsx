@@ -4,7 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, Expense, User } from '../../lib/api';
 import { formatMoney, formatDate, formatDayHeading } from '../../lib/format';
 import { useDateStore } from '../../lib/dateStore';
-import { Plus, Search, Trash2 } from 'lucide-react';
+import { Plus, Search, Trash2, HandCoins } from 'lucide-react';
+import { supportsExpenseSplits } from '../../lib/household';
 import { ExpenseFormModal } from './ExpenseFormModal';
 import { toast } from '../../components/Toaster';
 
@@ -67,6 +68,14 @@ export function ExpensesPage() {
           <p className="text-gray-500 text-sm">{formatDayHeading(viewDate)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {supportsExpenseSplits(members.length) && (
+            <Link
+              to="/splits"
+              className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm font-medium"
+            >
+              <HandCoins size={16} /> Split money
+            </Link>
+          )}
           <Link
             to={`/reports?period=daily&date=${viewDate}`}
             className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm font-medium"
@@ -133,6 +142,9 @@ export function ExpensesPage() {
                     <span className="text-xs px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: exp.paidBy.color }}>
                       {exp.paidBy.name}
                     </span>
+                    {exp.isShared && (
+                      <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">split</span>
+                    )}
                   </td>
                   <td className="p-3 text-right font-semibold tabular-nums">{formatMoney(exp.amount)}</td>
                   <td className="p-3">
@@ -154,6 +166,7 @@ export function ExpensesPage() {
         <ExpenseFormModal
           expense={editExpense}
           members={members}
+          splitEnabled={supportsExpenseSplits(members.length)}
           defaultDate={viewDate}
           onClose={() => { setModalOpen(false); setEditExpense(null); }}
         />

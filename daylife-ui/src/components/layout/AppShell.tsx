@@ -8,15 +8,17 @@ import { DayPicker } from '../DayPicker';
 import { InstallAppBanner } from '../InstallAppBanner';
 import {
   LayoutDashboard, CheckSquare, Receipt, Briefcase, Home, Settings,
-  Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star,
+  Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star, HandCoins,
 } from 'lucide-react';
+import { supportsExpenseSplits } from '../../lib/household';
 
-const navItems = [
+const baseNavItems = [
   { path: '/', label: 'Day planner', icon: LayoutDashboard },
   { path: '/tasks', label: 'All tasks', icon: CheckSquare },
   { path: '/daily', label: 'Daily life', icon: Sparkles },
   { path: '/vision', label: 'Vision board', icon: Star },
   { path: '/expenses', label: 'Expenses', icon: Receipt },
+  { path: '/splits', label: 'Split money', icon: HandCoins, splitOnly: true },
   { path: '/reports', label: 'Reports', icon: BarChart3 },
   { path: '/work', label: 'Work', icon: Briefcase },
   { path: '/home', label: 'Home', icon: Home },
@@ -42,7 +44,11 @@ export function AppShell() {
     initialData: members,
   });
 
-  const NavLink = ({ item, onClick }: { item: typeof navItems[0]; onClick?: () => void }) => {
+  const navItems = baseNavItems.filter(
+    (item) => !item.splitOnly || supportsExpenseSplits(allMembers.length),
+  );
+
+  const NavLink = ({ item, onClick }: { item: typeof baseNavItems[0]; onClick?: () => void }) => {
     const Icon = item.icon;
     const active = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
     return (
@@ -206,6 +212,7 @@ export function AppShell() {
               {[
                 { label: 'Add task', path: '/tasks?add=true', icon: CheckSquare },
                 { label: 'Log expense', path: '/expenses?add=true', icon: Receipt },
+                { label: 'Split money', path: '/splits', icon: HandCoins },
                 { label: 'Shopping list', path: '/daily?tab=shopping', icon: Sparkles },
                 { label: 'Vision board', path: '/vision', icon: Star },
                 { label: 'Work note', path: '/work?add=true', icon: Briefcase },

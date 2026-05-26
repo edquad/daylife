@@ -1,4 +1,4 @@
-export type HouseholdType = 'SINGLE' | 'COUPLE' | 'FAMILY';
+export type HouseholdType = 'SINGLE' | 'COUPLE' | 'FAMILY' | 'GROUP';
 
 export type UserRole = 'OWNER' | 'PARTNER' | 'MEMBER';
 
@@ -19,17 +19,28 @@ export const HOUSEHOLD_TYPE_LABELS: Record<HouseholdType, string> = {
   SINGLE: 'Just me',
   COUPLE: 'Me & partner',
   FAMILY: 'Our family',
+  GROUP: 'Friend group',
 };
 
 export const HOUSEHOLD_TYPE_DESC: Record<HouseholdType, string> = {
   SINGLE: 'Manage your own daily tasks, expenses & notes',
   COUPLE: 'Plan each day together — two columns, one app',
   FAMILY: 'Everyone gets their own column — parents, kids & more',
+  GROUP: 'Split bills & track who owes who — roommates, trips & friends',
 };
+
+export function canManageMembers(householdType?: HouseholdType): boolean {
+  return householdType === 'FAMILY' || householdType === 'GROUP';
+}
+
+export function supportsExpenseSplits(memberCount: number): boolean {
+  return memberCount >= 2;
+}
 
 export function roleLabel(role: string, householdType?: HouseholdType): string {
   if (role === 'OWNER') return 'You';
-  if (role === 'PARTNER') return householdType === 'FAMILY' ? 'Partner' : 'Partner';
+  if (role === 'PARTNER') return 'Partner';
+  if (householdType === 'GROUP') return 'Group member';
   return 'Family member';
 }
 
