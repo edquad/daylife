@@ -43,6 +43,15 @@ export function ExpensesPage() {
     queryFn: () => api.get(`/expenses?${params}`),
   });
 
+  const { data: sharedExpenses } = useQuery<{
+    groups: Array<{ spaceId: string; partnerName: string; expenses: Expense[]; total: string }>;
+  }>({
+    queryKey: ['shared-expenses', viewDate],
+    queryFn: () => api.get(`/shared/expenses?date=${viewDate}`),
+  });
+
+  const sharedGroups = sharedExpenses?.groups ?? [];
+
   const { data: members = [] } = useQuery<User[]>({
     queryKey: ['users'],
     queryFn: () => api.get('/users'),
@@ -57,8 +66,47 @@ export function ExpensesPage() {
     },
   });
 
+  const deleteSharedExpense = useMutation({
+    mutationFn: ({ spaceId, id }: { spaceId: string; id: string }) =>
+      api.delete(`/shared/${spaceId}/expenses/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shared-expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['shared-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      toast.success('Shared expense deleted');
+    },
+  });
+
+  const addSharedExpense = useMutation({
+    mutationFn: ({
+      spaceId,
+      amount,
+      description,
+    }: {
+      spaceId: string;
+      amount: string;
+      description: string;
+    }) =>
+      api.post(`/shared/${spaceId}/expenses`, {
+        amount: parseFloat(amount),
+        description,
+        expenseDate: viewDate,
+        categoryId: 'cat-other',
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shared-expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['shared-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      toast.success('Shared expense logged');
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const [sharedDrafts, setSharedDrafts] = useState<Record<string, { amount: string; description: string }>>({});
+
   const expenses = data?.data ?? [];
   const total = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+  const sharedTotal = sharedGroups.reduce((sum, g) => sum + parseFloat(g.total), 0);
 
   return (
     <div className="p-4 lg:p-6 space-y-4">
@@ -106,9 +154,98 @@ export function ExpensesPage() {
       </div>
 
       <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 flex items-center justify-between">
-        <span className="text-sm text-brand-700 font-medium">Day total</span>
+        <span className="text-sm text-brand-700 font-medium">Day total (yours)</span>
         <span className="text-xl font-bold tabular-nums text-brand-800">{formatMoney(total)}</span>
       </div>
+
+      {sharedGroups.length > 0 && (
+        <div className="space-y-4">
+          {sharedGroups.map((group) => {
+            const draft = sharedDrafts[group.spaceId] || { amount: '', description: '' };
+            return (
+              <section key={group.spaceId} className="bg-violet-50 border border-violet-200 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="font-semibold text-violet-900">Shared with {group.partnerName}</h2>
+                  <span className="text-sm font-bold tabular-nums text-violet-800">{formatMoney(group.total)}</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    value={draft.amount}
+                    onChange={(e) =>
+                      setSharedDrafts((prev) => ({
+                        ...prev,
+                        [group.spaceId]: { ...draft, amount: e.target.value },
+                      }))
+                    }
+                    placeholder="Amount"
+                    inputMode="decimal"
+                    className="w-28 px-3 py-2 border rounded-lg text-sm bg-white"
+                  />
+                  <input
+                    value={draft.description}
+                    onChange={(e) =>
+                      setSharedDrafts((prev) => ({
+                        ...prev,
+                        [group.spaceId]: { ...draft, description: e.target.value },
+                      }))
+                    }
+                    placeholder="What was it for?"
+                    className="flex-1 min-w-[160px] px-3 py-2 border rounded-lg text-sm bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!draft.amount.trim()) return;
+                      addSharedExpense.mutate({
+                        spaceId: group.spaceId,
+                        amount: draft.amount,
+                        description: draft.description,
+                      });
+                      setSharedDrafts((prev) => ({
+                        ...prev,
+                        [group.spaceId]: { amount: '', description: '' },
+                      }));
+                    }}
+                    disabled={!draft.amount.trim() || addSharedExpense.isPending}
+                    className="px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                  >
+                    Add shared
+                  </button>
+                </div>
+                {group.expenses.length === 0 ? (
+                  <p className="text-sm text-violet-600/70">No shared expenses on this day yet.</p>
+                ) : (
+                  <div className="bg-white rounded-xl border divide-y">
+                    {group.expenses.map((exp) => (
+                      <div key={exp.id} className="flex items-center justify-between p-3 group">
+                        <div>
+                          <p className="text-sm font-medium">{exp.description || exp.category.name}</p>
+                          <p className="text-xs text-gray-400">{exp.paidBy.name}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold tabular-nums text-sm">{formatMoney(exp.amount)}</span>
+                          <button
+                            type="button"
+                            onClick={() => deleteSharedExpense.mutate({ spaceId: group.spaceId, id: exp.id })}
+                            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+          {sharedTotal > 0 && (
+            <p className="text-xs text-violet-700 text-right">
+              Shared day total: {formatMoney(sharedTotal.toFixed(2))}
+            </p>
+          )}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="animate-pulse space-y-2">{[1, 2, 3].map((i) => <div key={i} className="h-14 bg-gray-200 rounded-xl" />)}</div>

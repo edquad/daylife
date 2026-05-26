@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../features/auth/AuthContext';
 import { useGitHubSync } from '../../features/sync/GitHubSyncContext';
-import { api, User } from '../../lib/api';
+import { api, User, Connection } from '../../lib/api';
 import { DayPicker } from '../DayPicker';
 import { InstallAppBanner } from '../InstallAppBanner';
 import {
@@ -44,8 +44,17 @@ export function AppShell() {
     queryFn: () => api.get('/users'),
   });
 
+  const { data: connections = [] } = useQuery<Connection[]>({
+    queryKey: ['connections'],
+    queryFn: () => api.get('/connections'),
+  });
+
+  const hasSharedSplits = connections.some(
+    (c) => c.status === 'active' && c.features.includes('splits'),
+  );
+
   const navItems = baseNavItems.filter(
-    (item) => !item.splitOnly || supportsExpenseSplits(allMembers.length),
+    (item) => !item.splitOnly || supportsExpenseSplits(allMembers.length) || hasSharedSplits,
   );
 
   const NavLink = ({ item, onClick }: { item: typeof baseNavItems[0]; onClick?: () => void }) => {

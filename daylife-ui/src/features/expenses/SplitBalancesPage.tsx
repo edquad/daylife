@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, SplitBalancesResponse, User } from '../../lib/api';
+import { api, SplitBalancesResponse, User, Connection } from '../../lib/api';
 import { formatMoney, todayISO } from '../../lib/format';
 import { toast } from '../../components/Toaster';
 import { ArrowRight, HandCoins, Plus, Trash2, Users } from 'lucide-react';
@@ -22,6 +22,21 @@ export function SplitBalancesPage() {
     queryKey: ['splits', 'balances'],
     queryFn: () => api.get('/splits/balances'),
   });
+
+  const { data: sharedSplits } = useQuery<{
+    groups: Array<
+      SplitBalancesResponse & {
+        spaceId: string;
+        partnerName: string;
+        memberUserIds?: [string, string];
+      }
+    >;
+  }>({
+    queryKey: ['shared-splits'],
+    queryFn: () => api.get('/shared/splits/balances'),
+  });
+
+  const sharedGroups = sharedSplits?.groups ?? [];
 
   const settle = useMutation({
     mutationFn: () =>
@@ -47,6 +62,44 @@ export function SplitBalancesPage() {
     mutationFn: (id: string) => api.delete(`/splits/settlements/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['splits'] });
+      toast.success('Settlement removed');
+    },
+  });
+
+  const settleShared = useMutation({
+    mutationFn: ({
+      spaceId,
+      fromUserId,
+      toUserId,
+      settleAmount,
+      settleNote,
+    }: {
+      spaceId: string;
+      fromUserId: string;
+      toUserId: string;
+      settleAmount: string;
+      settleNote: string;
+    }) =>
+      api.post(`/shared/${spaceId}/splits/settlements`, {
+        fromUserId,
+        toUserId,
+        amount: parseFloat(settleAmount),
+        note: settleNote || undefined,
+        settledAt: todayISO(),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shared-splits'] });
+      queryClient.invalidateQueries({ queryKey: ['shared-expenses'] });
+      toast.success('Shared settlement recorded');
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const removeSharedSettlement = useMutation({
+    mutationFn: ({ spaceId, id }: { spaceId: string; id: string }) =>
+      api.delete(`/shared/${spaceId}/splits/settlements/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shared-splits'] });
       toast.success('Settlement removed');
     },
   });
@@ -77,6 +130,53 @@ export function SplitBalancesPage() {
           <Plus size={16} /> Shared expense
         </Link>
       </div>
+
+      {sharedGroups.map((group) => (
+        <section key={group.spaceId} className="bg-violet-50 border border-violet-200 rounded-2xl p-5 space-y-4">
+          <h2 className="font-semibold text-violet-900">Split with {group.partnerName}</h2>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {group.balances.map((row) => {
+              const value = parseFloat(row.balance);
+              const positive = value > 0.005;
+              const negative = value < -0.005;
+              return (
+                <div key={row.userId} className="rounded-xl border bg-white p-4">
+                  <p className="font-medium">{row.name}</p>
+                  <p className={`text-sm ${positive ? 'text-green-700' : negative ? 'text-red-600' : 'text-gray-500'}`}>
+                    {positive && `Gets back ${formatMoney(row.balance)}`}
+                    {negative && `Owes ${formatMoney(Math.abs(value).toFixed(2))}`}
+                    {!positive && !negative && 'All settled'}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+          {group.debts.length > 0 && (
+            <div className="space-y-2">
+              {group.debts.map((debt) => (
+                <div key={`${debt.fromUserId}-${debt.toUserId}`} className="flex items-center justify-between bg-white rounded-xl border p-3 text-sm">
+                  <span>{debt.fromName} → {debt.toName}: <strong>{formatMoney(debt.amount)}</strong></span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      settleShared.mutate({
+                        spaceId: group.spaceId,
+                        fromUserId: debt.fromUserId,
+                        toUserId: debt.toUserId,
+                        settleAmount: debt.amount,
+                        settleNote: '',
+                      })
+                    }
+                    className="text-xs px-3 py-1.5 bg-violet-600 text-white rounded-lg"
+                  >
+                    Mark settled
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      ))}
 
       {isLoading ? (
         <div className="animate-pulse space-y-3">

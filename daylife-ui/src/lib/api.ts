@@ -31,6 +31,7 @@ import {
   type Connection,
   type ShareFeature,
   type ShareInvite,
+  type SharedSpaceData,
   fetchInbox,
   pushInbox,
   fetchSharedSpace,
@@ -38,9 +39,15 @@ import {
   updatePartnerConnection,
   emptySharedSpace,
   newShareId,
+  normalizeSharedSpace,
+  ALL_SHARE_FEATURES,
+  SHARE_FEATURE_LABELS,
+  SHARE_FEATURE_GROUPS,
+  fetchAccountUserProfile,
 } from './sharing';
 
 export type { Connection, ShareFeature, ShareInvite };
+export { ALL_SHARE_FEATURES, SHARE_FEATURE_LABELS, SHARE_FEATURE_GROUPS };
 
 export class ApiError extends Error {
   constructor(
@@ -764,6 +771,123 @@ function routinesForDay(data: ReturnType<typeof loadData>, date: string): Routin
   });
 }
 
+function defaultSharedRoutines(): Routine[] {
+  return [
+    {
+      id: 'shared-routine-morning',
+      name: 'Morning routine',
+      timeOfDay: 'MORNING',
+      items: [
+        { id: 'sm1', label: 'Wake up & stretch' },
+        { id: 'sm2', label: 'Brush & shower' },
+        { id: 'sm3', label: 'Breakfast together' },
+      ],
+    },
+    {
+      id: 'shared-routine-evening',
+      name: 'Evening routine',
+      timeOfDay: 'EVENING',
+      items: [
+        { id: 'se1', label: 'Tidy shared spaces' },
+        { id: 'se2', label: 'Prep for tomorrow' },
+      ],
+    },
+  ];
+}
+
+function ensureSharedRoutines(space: SharedSpaceData): void {
+  if (!space.routines.length && space.features.includes('routines')) {
+    space.routines = defaultSharedRoutines();
+  }
+}
+
+function sharedRoutinesForDay(space: SharedSpaceData, date: string): RoutineToday[] {
+  ensureSharedRoutines(space);
+  return space.routines.map((routine) => {
+    const log = space.routineLogs.find(
+      (l) => l.routineId === routine.id && l.date.slice(0, 10) === date.slice(0, 10),
+    );
+    const doneIds = new Set(log?.doneItemIds ?? []);
+    const items = routine.items.map((item) => ({ ...item, done: doneIds.has(item.id) }));
+    const done = items.filter((i) => i.done).length;
+    return {
+      id: routine.id,
+      name: routine.name,
+      timeOfDay: routine.timeOfDay,
+      done,
+      total: items.length,
+      items,
+    };
+  });
+}
+
+function splitBalancesForSharedSpace(
+  data: ReturnType<typeof loadData>,
+  space: SharedSpaceData,
+  conn: Connection,
+): SplitBalancesResponse {
+  if (!space.settlements) space.settlements = [];
+  const ids = space.memberUserIds;
+  if (!ids || ids.length < 2) {
+    return { balances: [], debts: [], settlements: [] };
+  }
+  const names = space.memberNames || [conn.partnerUsername, data.users[0]?.name || 'You'];
+  const syntheticUsers: User[] = [
+    {
+      id: ids[0],
+      email: 'shared0@local',
+      name: names[0],
+      role: 'OWNER',
+      color: MEMBER_COLORS[0],
+    },
+    {
+      id: ids[1],
+      email: 'shared1@local',
+      name: names[1],
+      role: 'PARTNER',
+      color: MEMBER_COLORS[1],
+    },
+  ];
+  const net = computeNetBalances(syntheticUsers, space.expenses, space.settlements);
+  const simplified = simplifyDebts(net);
+  return {
+    balances: syntheticUsers.map((user) => ({
+      userId: user.id,
+      name: user.name,
+      color: user.color,
+      balance: formatBalance(net[user.id] || 0),
+    })),
+    debts: simplified.map((debt) => {
+      const fromUser = syntheticUsers.find((u) => u.id === debt.fromUserId)!;
+      const toUser = syntheticUsers.find((u) => u.id === debt.toUserId)!;
+      return {
+        fromUserId: debt.fromUserId,
+        fromName: fromUser.name,
+        fromColor: fromUser.color,
+        toUserId: debt.toUserId,
+        toName: toUser.name,
+        toColor: toUser.color,
+        amount: debt.amount.toFixed(2),
+      };
+    }),
+    settlements: [...space.settlements]
+      .sort((a, b) => b.settledAt.localeCompare(a.settledAt))
+      .map((s) => {
+        const fromUser = syntheticUsers.find((u) => u.id === s.fromUserId);
+        const toUser = syntheticUsers.find((u) => u.id === s.toUserId);
+        return {
+          ...s,
+          fromUser: fromUser
+            ? userRef(fromUser)
+            : { id: s.fromUserId, name: 'Unknown', color: '#6B7280' },
+          toUser: toUser
+            ? userRef(toUser)
+            : { id: s.toUserId, name: 'Unknown', color: '#6B7280' },
+        };
+      }),
+  };
+}
+
 function filterNotes(data: ReturnType<typeof loadData>, q: URLSearchParams, viewerId: string | null) {
   let notes = filterVisible(
     [...data.notes] as Array<{ id: string; content: string; area: DailyNote['area']; noteDate: string; authorId?: string; visibility?: ItemVisibility; ownerId?: string }>,
@@ -895,6 +1019,50 @@ function dashboardSummary(data: ReturnType<typeof loadData>, dateParam?: string,
     routinesToday: routineTodayList,
     upcomingReminders: upcoming.slice(0, 5),
   };
+}
+
+function getActiveSharedConnections(
+  data: ReturnType<typeof loadData>,
+  feature?: ShareFeature,
+): Connection[] {
+  const list = (data.connections || []).filter((c) => c.status === 'active' && c.sharedSpaceId);
+  if (!feature) return list;
+  return list.filter((c) => c.features.includes(feature));
+}
+
+function getSharedConnection(data: ReturnType<typeof loadData>, spaceId: string): Connection {
+  const conn = (data.connections || []).find(
+    (c) => c.sharedSpaceId === spaceId && c.status === 'active',
+  );
+  if (!conn) throw new ApiError(403, 'Shared space not found');
+  return conn;
+}
+
+function assertSharedFeature(conn: Connection, feature: ShareFeature): void {
+  if (!conn.features.includes(feature)) throw new ApiError(403, 'This feature is not shared');
+}
+
+function partnerLabel(conn: Connection): string {
+  return conn.partnerName || conn.partnerUsername;
+}
+
+async function readSharedSpace(
+  conn: Connection,
+  data: ReturnType<typeof loadData>,
+): Promise<SharedSpaceData> {
+  const accountId = getActiveAccountId() || '';
+  let space = await fetchSharedSpace(conn.sharedSpaceId!);
+  if (!space) {
+    space = emptySharedSpace(
+      conn.sharedSpaceId!,
+      conn.initiatedByMe ? accountId : conn.partnerAccountId,
+      conn.initiatedByMe ? conn.partnerAccountId : accountId,
+      conn.initiatedByMe ? data.users[0]?.username || 'you' : conn.partnerUsername,
+      conn.initiatedByMe ? conn.partnerUsername : data.users[0]?.username || 'you',
+      conn.features,
+    );
+  }
+  return normalizeSharedSpace(space);
 }
 
 async function handleRequest<T>(path: string, method: string, body?: unknown): Promise<T> {
@@ -1724,6 +1892,11 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       me?.username || 'you',
       conn.features,
     );
+    const partnerProfile = await fetchAccountUserProfile(conn.partnerAccountId);
+    if (partnerProfile && me) {
+      space.memberUserIds = [partnerProfile.id, sessionId!];
+      space.memberNames = [partnerProfile.name, me.name];
+    }
     await saveSharedSpace(space);
     conn.status = 'active';
     conn.sharedSpaceId = spaceId;
@@ -1748,24 +1921,426 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
 
   if (route === '/shared/summary' && method === 'GET') {
     const date = q.get('date') || todayISO();
-    const active = (data.connections || []).filter(
-      (c) => c.status === 'active' && c.sharedSpaceId && c.features.includes('tasks'),
-    );
+    const taskConnections = getActiveSharedConnections(data, 'tasks');
     const columns = await Promise.all(
-      active.map(async (conn) => {
-        const space = await fetchSharedSpace(conn.sharedSpaceId!);
-        const tasks = (space?.tasks || [])
+      taskConnections.map(async (conn) => {
+        const space = await readSharedSpace(conn, data);
+        const tasks = space.tasks
           .filter((t) => t.dueDate?.slice(0, 10) === date)
           .map((t) => enrichTask(data, t));
         return {
           spaceId: conn.sharedSpaceId!,
-          partnerName: conn.partnerName || conn.partnerUsername,
+          partnerName: partnerLabel(conn),
           partnerUsername: conn.partnerUsername,
           tasks,
         };
       }),
     );
-    return { columns } as T;
+
+    const expenseConnections = getActiveSharedConnections(data, 'expenses');
+    const expenseGroups = await Promise.all(
+      expenseConnections.map(async (conn) => {
+        const space = await readSharedSpace(conn, data);
+        const expenses = space.expenses
+          .filter((e) => e.expenseDate.slice(0, 10) === date)
+          .map((e) => enrichExpense(data, e));
+        const total = expenses.reduce((s, e) => s + parseFloat(e.amount), 0);
+        return {
+          spaceId: conn.sharedSpaceId!,
+          partnerName: partnerLabel(conn),
+          expenses,
+          total: total.toFixed(2),
+        };
+      }),
+    );
+
+    const noteConnections = getActiveSharedConnections(data, 'notes');
+    const noteGroups = await Promise.all(
+      noteConnections.map(async (conn) => {
+        const space = await readSharedSpace(conn, data);
+        const notes = space.notes
+          .filter((n) => n.noteDate.slice(0, 10) === date)
+          .map((n) => {
+            const author = findUser(data, n.authorId);
+            return {
+              id: n.id,
+              content: n.content,
+              area: n.area,
+              author: { name: author?.name || conn.partnerName || conn.partnerUsername },
+            };
+          });
+        return {
+          spaceId: conn.sharedSpaceId!,
+          partnerName: partnerLabel(conn),
+          notes,
+        };
+      }),
+    );
+
+    return { columns, expenseGroups, noteGroups } as T;
+  }
+
+  if (route === '/shared/expenses' && method === 'GET') {
+    const date = q.get('date') || todayISO();
+    const groups = await Promise.all(
+      getActiveSharedConnections(data, 'expenses').map(async (conn) => {
+        const space = await readSharedSpace(conn, data);
+        const expenses = space.expenses
+          .filter((e) => e.expenseDate.slice(0, 10) === date)
+          .map((e) => enrichExpense(data, e));
+        const total = expenses.reduce((s, e) => s + parseFloat(e.amount), 0);
+        return {
+          spaceId: conn.sharedSpaceId!,
+          partnerName: partnerLabel(conn),
+          expenses,
+          total: total.toFixed(2),
+        };
+      }),
+    );
+    return { groups } as T;
+  }
+
+  if (route === '/shared/shopping' && method === 'GET') {
+    const groups = await Promise.all(
+      getActiveSharedConnections(data, 'shopping').map(async (conn) => {
+        const space = await readSharedSpace(conn, data);
+        const items = [...space.shoppingItems].sort((a, b) => {
+          if (a.checked !== b.checked) return a.checked ? 1 : -1;
+          return b.createdAt.localeCompare(a.createdAt);
+        });
+        return {
+          spaceId: conn.sharedSpaceId!,
+          partnerName: partnerLabel(conn),
+          items,
+          pending: items.filter((i) => !i.checked).length,
+        };
+      }),
+    );
+    return { groups } as T;
+  }
+
+  if (route === '/shared/reminders' && method === 'GET') {
+    const groups = await Promise.all(
+      getActiveSharedConnections(data, 'reminders').map(async (conn) => {
+        const space = await readSharedSpace(conn, data);
+        return {
+          spaceId: conn.sharedSpaceId!,
+          partnerName: partnerLabel(conn),
+          reminders: space.reminders,
+        };
+      }),
+    );
+    return { groups } as T;
+  }
+
+  if (route === '/shared/vision' && method === 'GET') {
+    const achieved = q.get('achieved');
+    const groups = await Promise.all(
+      getActiveSharedConnections(data, 'vision').map(async (conn) => {
+        const space = await readSharedSpace(conn, data);
+        let items = space.visionBoard;
+        if (achieved === 'true') items = items.filter((i) => i.achieved);
+        if (achieved === 'false') items = items.filter((i) => !i.achieved);
+        return {
+          spaceId: conn.sharedSpaceId!,
+          partnerName: partnerLabel(conn),
+          items: items.map((item) => enrichVision(data, item)),
+        };
+      }),
+    );
+    return { groups } as T;
+  }
+
+  if (route === '/shared/splits/balances' && method === 'GET') {
+    const groups = await Promise.all(
+      getActiveSharedConnections(data, 'splits').map(async (conn) => {
+        const space = await readSharedSpace(conn, data);
+        const balances = splitBalancesForSharedSpace(data, space, conn);
+        return {
+          spaceId: conn.sharedSpaceId!,
+          partnerName: partnerLabel(conn),
+          memberUserIds: space.memberUserIds,
+          ...balances,
+        };
+      }),
+    );
+    return { groups } as T;
+  }
+
+  if (route === '/shared/routines/today' && method === 'GET') {
+    const date = q.get('date') || todayISO();
+    const groups = await Promise.all(
+      getActiveSharedConnections(data, 'routines').map(async (conn) => {
+        const space = await readSharedSpace(conn, data);
+        return {
+          spaceId: conn.sharedSpaceId!,
+          partnerName: partnerLabel(conn),
+          date,
+          routines: sharedRoutinesForDay(space, date),
+        };
+      }),
+    );
+    return { groups } as T;
+  }
+
+  const sharedSplitSettlementMatch = route.match(/^\/shared\/([^/]+)\/splits\/settlements(?:\/([^/]+))?$/);
+  if (sharedSplitSettlementMatch) {
+    const spaceId = sharedSplitSettlementMatch[1];
+    const settlementId = sharedSplitSettlementMatch[2];
+    const conn = getSharedConnection(data, spaceId);
+    assertSharedFeature(conn, 'splits');
+    const space = await readSharedSpace(conn, data);
+
+    if (method === 'POST' && !settlementId) {
+      const b = body as { fromUserId: string; toUserId: string; amount: number; note?: string; settledAt?: string };
+      if (!space.memberUserIds?.includes(b.fromUserId) || !space.memberUserIds?.includes(b.toUserId)) {
+        throw new ApiError(400, 'Invalid member selected');
+      }
+      if (b.fromUserId === b.toUserId) throw new ApiError(400, 'Choose two different people');
+      if (!b.amount || b.amount <= 0) throw new ApiError(400, 'Enter a valid amount');
+      const settlement: Settlement = {
+        id: uid(),
+        fromUserId: b.fromUserId,
+        toUserId: b.toUserId,
+        amount: b.amount.toFixed(2),
+        settledAt: b.settledAt || todayISO(),
+        note: b.note?.trim() || undefined,
+        createdById: sessionId!,
+      };
+      space.settlements.push(settlement);
+      await saveSharedSpace(space);
+      return splitBalancesForSharedSpace(data, space, conn) as T;
+    }
+
+    if (settlementId && method === 'DELETE') {
+      const idx = space.settlements.findIndex((s) => s.id === settlementId);
+      if (idx < 0) throw new ApiError(404, 'Settlement not found');
+      space.settlements.splice(idx, 1);
+      await saveSharedSpace(space);
+      return undefined as T;
+    }
+  }
+
+  const sharedRoutineToggleMatch = route.match(/^\/shared\/([^/]+)\/routines\/([^/]+)\/toggle$/);
+  if (sharedRoutineToggleMatch && method === 'POST') {
+    const spaceId = sharedRoutineToggleMatch[1];
+    const routineId = sharedRoutineToggleMatch[2];
+    const conn = getSharedConnection(data, spaceId);
+    assertSharedFeature(conn, 'routines');
+    const space = await readSharedSpace(conn, data);
+    ensureSharedRoutines(space);
+    const routine = space.routines.find((r) => r.id === routineId);
+    if (!routine) throw new ApiError(404, 'Routine not found');
+    const b = body as { date?: string; itemId?: string };
+    const date = b.date || todayISO();
+    const itemId = b.itemId;
+    if (!itemId) throw new ApiError(400, 'Item id required');
+    let log = space.routineLogs.find((l) => l.routineId === routineId && l.date.slice(0, 10) === date.slice(0, 10));
+    if (!log) {
+      log = { routineId, date, doneItemIds: [] };
+      space.routineLogs.push(log);
+    }
+    const idx = log.doneItemIds.indexOf(itemId);
+    if (idx >= 0) log.doneItemIds.splice(idx, 1);
+    else log.doneItemIds.push(itemId);
+    await saveSharedSpace(space);
+    return { date, routines: sharedRoutinesForDay(space, date) } as T;
+  }
+
+  const sharedExpenseMatch = route.match(/^\/shared\/([^/]+)\/expenses(?:\/([^/]+))?$/);
+  if (sharedExpenseMatch) {
+    const spaceId = sharedExpenseMatch[1];
+    const expenseId = sharedExpenseMatch[2];
+    const conn = getSharedConnection(data, spaceId);
+    assertSharedFeature(conn, 'expenses');
+
+    if (method === 'POST' && !expenseId) {
+      const b = body as { amount?: number | string; description?: string; categoryId?: string; expenseDate?: string };
+      const amount = typeof b.amount === 'string' ? parseFloat(b.amount) : b.amount;
+      if (amount == null || Number.isNaN(amount) || amount <= 0) {
+        throw new ApiError(400, 'Valid amount is required');
+      }
+      const space = await readSharedSpace(conn, data);
+      const exp: StoredExpense = {
+        id: uid(),
+        amount: amount.toFixed(2),
+        description: b.description?.trim() || undefined,
+        expenseDate: b.expenseDate || todayISO(),
+        categoryId: b.categoryId || 'cat-other',
+        paidById: sessionId!,
+        visibility: 'SHARED',
+      };
+      if (conn.features.includes('splits') && space.memberUserIds) {
+        exp.isShared = true;
+        exp.splitMode = 'EQUAL';
+        exp.participantIds = [...space.memberUserIds];
+      }
+      space.expenses.push(exp);
+      await saveSharedSpace(space);
+      return enrichExpense(data, exp) as T;
+    }
+
+    if (expenseId && method === 'DELETE') {
+      const space = await readSharedSpace(conn, data);
+      const idx = space.expenses.findIndex((e) => e.id === expenseId);
+      if (idx < 0) throw new ApiError(404, 'Expense not found');
+      space.expenses.splice(idx, 1);
+      await saveSharedSpace(space);
+      return undefined as T;
+    }
+  }
+
+  const sharedShopMatch = route.match(/^\/shared\/([^/]+)\/shopping(?:\/([^/]+))?$/);
+  if (sharedShopMatch) {
+    const spaceId = sharedShopMatch[1];
+    const itemId = sharedShopMatch[2];
+    const conn = getSharedConnection(data, spaceId);
+    assertSharedFeature(conn, 'shopping');
+
+    if (method === 'POST' && !itemId) {
+      const b = body as { name?: string; quantity?: string; category?: ShoppingItem['category'] };
+      if (!b.name?.trim()) throw new ApiError(400, 'Item name is required');
+      const space = await readSharedSpace(conn, data);
+      const item: ShoppingItem = {
+        id: uid(),
+        name: b.name.trim(),
+        quantity: b.quantity?.trim() || undefined,
+        category: b.category || 'GROCERIES',
+        checked: false,
+        addedById: sessionId!,
+        createdAt: new Date().toISOString(),
+      };
+      space.shoppingItems.push(item);
+      await saveSharedSpace(space);
+      return item as T;
+    }
+
+    if (itemId && method === 'PATCH') {
+      const space = await readSharedSpace(conn, data);
+      const idx = space.shoppingItems.findIndex((i) => i.id === itemId);
+      if (idx < 0) throw new ApiError(404, 'Item not found');
+      space.shoppingItems[idx].checked = !space.shoppingItems[idx].checked;
+      await saveSharedSpace(space);
+      return space.shoppingItems[idx] as T;
+    }
+
+    if (itemId && method === 'DELETE') {
+      const space = await readSharedSpace(conn, data);
+      const idx = space.shoppingItems.findIndex((i) => i.id === itemId);
+      if (idx < 0) throw new ApiError(404, 'Item not found');
+      space.shoppingItems.splice(idx, 1);
+      await saveSharedSpace(space);
+      return undefined as T;
+    }
+  }
+
+  const sharedNoteMatch = route.match(/^\/shared\/([^/]+)\/notes$/);
+  if (sharedNoteMatch && method === 'POST') {
+    const conn = getSharedConnection(data, sharedNoteMatch[1]);
+    assertSharedFeature(conn, 'notes');
+    const b = body as { content?: string; area?: DailyNote['area']; noteDate?: string };
+    if (!b.content?.trim()) throw new ApiError(400, 'Note content is required');
+    const space = await readSharedSpace(conn, data);
+    const note = {
+      id: uid(),
+      content: b.content.trim(),
+      area: b.area || 'PERSONAL',
+      noteDate: b.noteDate || todayISO(),
+      authorId: sessionId!,
+      createdAt: new Date().toISOString(),
+    };
+    space.notes.push(note);
+    await saveSharedSpace(space);
+    const author = findUser(data, sessionId!);
+    return {
+      id: note.id,
+      content: note.content,
+      area: note.area,
+      author: { name: author?.name || 'You' },
+    } as T;
+  }
+
+  const sharedReminderMatch = route.match(/^\/shared\/([^/]+)\/reminders(?:\/([^/]+))?$/);
+  if (sharedReminderMatch) {
+    const spaceId = sharedReminderMatch[1];
+    const reminderId = sharedReminderMatch[2];
+    const conn = getSharedConnection(data, spaceId);
+    assertSharedFeature(conn, 'reminders');
+
+    if (method === 'POST' && !reminderId) {
+      const b = body as { title?: string; dueDate?: string; repeat?: ReminderRepeat; notes?: string };
+      if (!b.title?.trim()) throw new ApiError(400, 'Title is required');
+      if (!b.dueDate) throw new ApiError(400, 'Due date is required');
+      const space = await readSharedSpace(conn, data);
+      const reminder: Reminder = {
+        id: uid(),
+        title: b.title.trim(),
+        dueDate: b.dueDate,
+        repeat: b.repeat || 'NONE',
+        notes: b.notes?.trim() || undefined,
+        createdById: sessionId!,
+      };
+      space.reminders.push(reminder);
+      await saveSharedSpace(space);
+      return reminder as T;
+    }
+
+    if (reminderId && method === 'DELETE') {
+      const space = await readSharedSpace(conn, data);
+      const idx = space.reminders.findIndex((r) => r.id === reminderId);
+      if (idx < 0) throw new ApiError(404, 'Reminder not found');
+      space.reminders.splice(idx, 1);
+      await saveSharedSpace(space);
+      return undefined as T;
+    }
+  }
+
+  const sharedVisionMatch = route.match(/^\/shared\/([^/]+)\/vision(?:\/([^/]+)(?:\/achieve)?)?$/);
+  if (sharedVisionMatch) {
+    const spaceId = sharedVisionMatch[1];
+    const itemId = sharedVisionMatch[2];
+    const isAchieve = route.endsWith('/achieve');
+    const conn = getSharedConnection(data, spaceId);
+    assertSharedFeature(conn, 'vision');
+
+    if (method === 'POST' && !itemId) {
+      const b = body as Partial<VisionBoardItem>;
+      if (!b.title?.trim()) throw new ApiError(400, 'Title is required');
+      const space = await readSharedSpace(conn, data);
+      const item: VisionBoardItem = {
+        id: uid(),
+        title: b.title.trim(),
+        caption: b.caption?.trim() || undefined,
+        imageUrl: b.imageUrl?.trim() || undefined,
+        emoji: b.emoji?.trim() || '✨',
+        category: b.category || 'OTHER',
+        color: b.color || '#6366F1',
+        achieved: false,
+        createdById: sessionId!,
+        createdAt: new Date().toISOString(),
+      };
+      space.visionBoard.push(item);
+      await saveSharedSpace(space);
+      return enrichVision(data, item) as T;
+    }
+
+    if (itemId && isAchieve && method === 'PATCH') {
+      const space = await readSharedSpace(conn, data);
+      const idx = space.visionBoard.findIndex((i) => i.id === itemId);
+      if (idx < 0) throw new ApiError(404, 'Vision card not found');
+      space.visionBoard[idx].achieved = !space.visionBoard[idx].achieved;
+      await saveSharedSpace(space);
+      return enrichVision(data, space.visionBoard[idx]) as T;
+    }
+
+    if (itemId && method === 'DELETE') {
+      const space = await readSharedSpace(conn, data);
+      const idx = space.visionBoard.findIndex((i) => i.id === itemId);
+      if (idx < 0) throw new ApiError(404, 'Vision card not found');
+      space.visionBoard.splice(idx, 1);
+      await saveSharedSpace(space);
+      return undefined as T;
+    }
   }
 
   const sharedTaskMatch = route.match(/^\/shared\/([^/]+)\/tasks(?:\/([^/]+)(?:\/toggle)?)?$/);
@@ -1773,22 +2348,13 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     const spaceId = sharedTaskMatch[1];
     const taskId = sharedTaskMatch[2];
     const isToggle = route.endsWith('/toggle');
-    const conn = (data.connections || []).find(
-      (c) => c.sharedSpaceId === spaceId && c.status === 'active',
-    );
-    if (!conn) throw new ApiError(403, 'Shared space not found');
+    const conn = getSharedConnection(data, spaceId);
+    assertSharedFeature(conn, 'tasks');
 
     if (method === 'POST' && !taskId) {
       const b = body as { title?: string; area?: Task['area']; dueDate?: string };
       if (!b.title?.trim()) throw new ApiError(400, 'Title is required');
-      const space = (await fetchSharedSpace(spaceId)) || emptySharedSpace(
-        spaceId,
-        conn.partnerAccountId,
-        getActiveAccountId() || '',
-        conn.partnerUsername,
-        data.users[0]?.username || 'you',
-        conn.features,
-      );
+      const space = await readSharedSpace(conn, data);
       const task: Task = {
         id: uid(),
         title: b.title.trim(),
@@ -1806,8 +2372,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     }
 
     if (taskId && isToggle && method === 'PATCH') {
-      const space = await fetchSharedSpace(spaceId);
-      if (!space) throw new ApiError(404, 'Shared space not found');
+      const space = await readSharedSpace(conn, data);
       const idx = space.tasks.findIndex((t) => t.id === taskId);
       if (idx < 0) throw new ApiError(404, 'Task not found');
       const task = space.tasks[idx];
@@ -1823,8 +2388,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     }
 
     if (taskId && method === 'DELETE') {
-      const space = await fetchSharedSpace(spaceId);
-      if (!space) throw new ApiError(404, 'Shared space not found');
+      const space = await readSharedSpace(conn, data);
       const idx = space.tasks.findIndex((t) => t.id === taskId);
       if (idx < 0) throw new ApiError(404, 'Task not found');
       space.tasks.splice(idx, 1);

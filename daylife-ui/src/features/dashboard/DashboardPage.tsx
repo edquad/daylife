@@ -70,12 +70,18 @@ export function DashboardPage() {
     queryFn: () => api.get('/vision-board?achieved=false'),
   });
 
-  const { data: sharedSummary } = useQuery<{ columns: Array<{ spaceId: string; partnerName: string; partnerUsername: string; tasks: Task[] }> }>({
+  const { data: sharedSummary } = useQuery<{
+    columns: Array<{ spaceId: string; partnerName: string; partnerUsername: string; tasks: Task[] }>;
+    expenseGroups: Array<{ spaceId: string; partnerName: string; expenses: Expense[]; total: string }>;
+    noteGroups: Array<{ spaceId: string; partnerName: string; notes: Array<{ id: string; content: string; area: string; author: { name: string } }> }>;
+  }>({
     queryKey: ['shared-summary', selectedDate],
     queryFn: () => api.get(`/shared/summary?date=${selectedDate}`),
   });
 
   const sharedColumns = sharedSummary?.columns ?? [];
+  const sharedExpenseGroups = sharedSummary?.expenseGroups ?? [];
+  const sharedNoteGroups = sharedSummary?.noteGroups ?? [];
 
   const addNote = useMutation({
     mutationFn: (payload: { content: string; visibility: ItemVisibility }) =>
@@ -88,7 +94,14 @@ export function DashboardPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
   });
 
+  const addSharedNote = useMutation({
+    mutationFn: ({ spaceId, content }: { spaceId: string; content: string }) =>
+      api.post(`/shared/${spaceId}/notes`, { content, noteDate: selectedDate }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['shared-summary'] }),
+  });
+
   const [dayNote, setDayNote] = React.useState('');
+  const [sharedNoteDrafts, setSharedNoteDrafts] = React.useState<Record<string, string>>({});
   const [noteVisibility, setNoteVisibility] = React.useState<ItemVisibility>(
     defaultVisibility(members.length),
   );
@@ -321,7 +334,7 @@ export function DashboardPage() {
               <Plus size={14} /> Add
             </Link>
           </div>
-          {(data?.todayExpenses ?? []).length === 0 ? (
+          {(data?.todayExpenses ?? []).length === 0 && sharedExpenseGroups.every((g) => g.expenses.length === 0) ? (
             <p className="text-sm text-gray-400 py-4 text-center">No expenses logged</p>
           ) : (
             <div className="space-y-2">
@@ -334,6 +347,17 @@ export function DashboardPage() {
                   <p className="font-semibold tabular-nums text-sm">{formatMoney(exp.amount)}</p>
                 </div>
               ))}
+              {sharedExpenseGroups.map((group) =>
+                group.expenses.map((exp) => (
+                  <div key={exp.id} className="flex justify-between items-center py-2 border-b last:border-0 bg-violet-50/50 rounded-lg px-2 -mx-2">
+                    <div>
+                      <p className="text-sm font-medium">{exp.description || exp.category.name}</p>
+                      <p className="text-xs text-violet-600">Shared with {group.partnerName}</p>
+                    </div>
+                    <p className="font-semibold tabular-nums text-sm">{formatMoney(exp.amount)}</p>
+                  </div>
+                )),
+              )}
             </div>
           )}
         </section>
@@ -385,6 +409,43 @@ export function DashboardPage() {
               ))}
             </div>
           )}
+          {sharedNoteGroups.map((group) => (
+            <div key={group.spaceId} className="mt-4 pt-4 border-t border-violet-100">
+              <p className="text-xs font-medium text-violet-700 mb-2">Shared note with {group.partnerName}</p>
+              <textarea
+                value={sharedNoteDrafts[group.spaceId] || ''}
+                onChange={(e) =>
+                  setSharedNoteDrafts((prev) => ({ ...prev, [group.spaceId]: e.target.value }))
+                }
+                placeholder={`Note for you & ${group.partnerName}...`}
+                rows={2}
+                className="w-full px-3 py-2 border border-violet-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-violet-500 mb-2"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const content = (sharedNoteDrafts[group.spaceId] || '').trim();
+                  if (!content) return;
+                  addSharedNote.mutate({ spaceId: group.spaceId, content });
+                  setSharedNoteDrafts((prev) => ({ ...prev, [group.spaceId]: '' }));
+                }}
+                disabled={!(sharedNoteDrafts[group.spaceId] || '').trim()}
+                className="px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-50"
+              >
+                Save shared note
+              </button>
+              {group.notes.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {group.notes.map((note) => (
+                    <div key={note.id} className="p-3 bg-violet-50 rounded-xl text-sm">
+                      <p className="text-xs text-violet-600 mb-1">{note.author.name}</p>
+                      <p className="text-gray-700 whitespace-pre-wrap">{note.content}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </section>
       </div>
     </div>

@@ -58,8 +58,18 @@ function ShoppingTab() {
     queryFn: () => api.get('/shopping'),
   });
 
+  const { data: sharedShopping } = useQuery<{
+    groups: Array<{ spaceId: string; partnerName: string; items: ShoppingItem[]; pending: number }>;
+  }>({
+    queryKey: ['shared-shopping'],
+    queryFn: () => api.get('/shared/shopping'),
+  });
+
+  const sharedGroups = sharedShopping?.groups ?? [];
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['shopping'] });
+    queryClient.invalidateQueries({ queryKey: ['shared-shopping'] });
     queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
@@ -76,6 +86,24 @@ function ShoppingTab() {
 
   const deleteItem = useMutation({
     mutationFn: (id: string) => api.delete(`/shopping/${id}`),
+    onSuccess: () => { invalidate(); toast.success('Removed'); },
+  });
+
+  const addSharedItem = useMutation({
+    mutationFn: ({ spaceId, itemName }: { spaceId: string; itemName: string }) =>
+      api.post<ShoppingItem>(`/shared/${spaceId}/shopping`, { name: itemName, category: 'GROCERIES' }),
+    onSuccess: () => { invalidate(); toast.success('Added to shared list'); },
+  });
+
+  const toggleSharedItem = useMutation({
+    mutationFn: ({ spaceId, id }: { spaceId: string; id: string }) =>
+      api.patch<ShoppingItem>(`/shared/${spaceId}/shopping/${id}`),
+    onSuccess: invalidate,
+  });
+
+  const deleteSharedItem = useMutation({
+    mutationFn: ({ spaceId, id }: { spaceId: string; id: string }) =>
+      api.delete(`/shared/${spaceId}/shopping/${id}`),
     onSuccess: () => { invalidate(); toast.success('Removed'); },
   });
 
@@ -189,6 +217,61 @@ function ShoppingTab() {
           })}
         </div>
       )}
+      {sharedGroups.map((group) => (
+        <section key={group.spaceId} className="bg-violet-50 border border-violet-200 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-violet-900">Shared shopping with {group.partnerName}</h2>
+            <span className="text-xs text-violet-700">{group.pending} to buy</span>
+          </div>
+          <div className="flex gap-2">
+            <input
+              id={`shared-shop-${group.spaceId}`}
+              placeholder="Add shared item..."
+              className="flex-1 px-3 py-2 border rounded-lg text-sm bg-white"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const input = e.currentTarget;
+                  if (!input.value.trim()) return;
+                  addSharedItem.mutate({ spaceId: group.spaceId, itemName: input.value.trim() });
+                  input.value = '';
+                }
+              }}
+            />
+          </div>
+          {group.items.length === 0 ? (
+            <p className="text-sm text-violet-600/70">Shared list is empty.</p>
+          ) : (
+            <div className="bg-white rounded-xl border divide-y">
+              {group.items.map((item) => {
+                const cat = SHOP_CATEGORIES.find((c) => c.id === item.category);
+                return (
+                  <div key={item.id} className={cn('flex items-center gap-3 p-3 group', item.checked && 'opacity-60')}>
+                    <button type="button" onClick={() => toggleSharedItem.mutate({ spaceId: group.spaceId, id: item.id })}>
+                      {item.checked ? (
+                        <CheckCircle2 size={22} className="text-green-500" />
+                      ) : (
+                        <Circle size={22} className="text-violet-300 hover:text-violet-600" />
+                      )}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <p className={cn('font-medium text-sm', item.checked && 'line-through text-gray-400')}>{item.name}</p>
+                      {cat && <span className={cn('text-[10px] px-2 py-0.5 rounded-full', cat.color)}>{cat.label}</span>}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => deleteSharedItem.mutate({ spaceId: group.spaceId, id: item.id })}
+                      className="opacity-0 group-hover:opacity-100 p-2 text-gray-400 hover:text-red-500"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      ))}
     </div>
   );
 }
@@ -204,14 +287,30 @@ function RoutinesTab() {
     queryFn: () => api.get(`/routines/today?date=${selectedDate}`),
   });
 
+  const { data: sharedRoutines } = useQuery<{
+    groups: Array<{ spaceId: string; partnerName: string; date: string; routines: RoutineToday[] }>;
+  }>({
+    queryKey: ['shared-routines', selectedDate],
+    queryFn: () => api.get(`/shared/routines/today?date=${selectedDate}`),
+  });
+
+  const sharedGroups = sharedRoutines?.groups ?? [];
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['routines-today'] });
+    queryClient.invalidateQueries({ queryKey: ['shared-routines'] });
     queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
   const toggleItem = useMutation({
     mutationFn: ({ routineId, itemId }: { routineId: string; itemId: string }) =>
       api.post(`/routines/${routineId}/toggle`, { date: selectedDate, itemId }),
+    onSuccess: invalidate,
+  });
+
+  const toggleSharedItem = useMutation({
+    mutationFn: ({ spaceId, routineId, itemId }: { spaceId: string; routineId: string; itemId: string }) =>
+      api.post(`/shared/${spaceId}/routines/${routineId}/toggle`, { date: selectedDate, itemId }),
     onSuccess: invalidate,
   });
 
@@ -292,6 +391,43 @@ function RoutinesTab() {
         })
       )}
 
+      {sharedGroups.map((group) =>
+        group.routines.map((routine) => {
+          const Icon = routine.timeOfDay === 'MORNING' ? Sun : routine.timeOfDay === 'EVENING' ? Moon : Sparkles;
+          const progress = routine.total > 0 ? Math.round((routine.done / routine.total) * 100) : 0;
+          return (
+            <section key={`${group.spaceId}-${routine.id}`} className="bg-violet-50 border border-violet-200 rounded-2xl overflow-hidden">
+              <div className="p-4 border-b border-violet-100 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center">
+                  <Icon size={20} className="text-violet-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-violet-900">{routine.name}</h3>
+                  <p className="text-xs text-violet-600">With {group.partnerName} · {progress}%</p>
+                </div>
+              </div>
+              <div className="divide-y divide-violet-100 bg-white/60">
+                {routine.items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => toggleSharedItem.mutate({ spaceId: group.spaceId, routineId: routine.id, itemId: item.id })}
+                    className="w-full flex items-center gap-3 p-4 hover:bg-violet-50 text-left"
+                  >
+                    {item.done ? (
+                      <CheckCircle2 size={20} className="text-green-500 shrink-0" />
+                    ) : (
+                      <Circle size={20} className="text-violet-300 shrink-0" />
+                    )}
+                    <span className={cn('text-sm', item.done && 'line-through text-gray-400')}>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          );
+        }),
+      )}
+
       <section className="bg-white rounded-2xl border shadow-sm p-4 space-y-3">
         <h3 className="font-semibold">Add custom routine</h3>
         <input
@@ -336,9 +472,20 @@ function RemindersTab() {
     queryFn: () => api.get('/reminders/upcoming?days=30'),
   });
 
+  const { data: sharedReminders } = useQuery<{
+    groups: Array<{ spaceId: string; partnerName: string; reminders: Reminder[] }>;
+  }>({
+    queryKey: ['shared-reminders'],
+    queryFn: () => api.get('/shared/reminders'),
+  });
+
+  const sharedGroups = sharedReminders?.groups ?? [];
+  const [sharedDrafts, setSharedDrafts] = useState<Record<string, { title: string; dueDate: string }>>({});
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['reminders'] });
     queryClient.invalidateQueries({ queryKey: ['reminders-upcoming'] });
+    queryClient.invalidateQueries({ queryKey: ['shared-reminders'] });
     queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
@@ -355,6 +502,18 @@ function RemindersTab() {
   const deleteReminder = useMutation({
     mutationFn: (id: string) => api.delete(`/reminders/${id}`),
     onSuccess: () => { invalidate(); toast.success('Reminder removed'); },
+  });
+
+  const addSharedReminder = useMutation({
+    mutationFn: ({ spaceId, reminderTitle, reminderDueDate }: { spaceId: string; reminderTitle: string; reminderDueDate: string }) =>
+      api.post(`/shared/${spaceId}/reminders`, { title: reminderTitle, dueDate: reminderDueDate, repeat: 'NONE' as const }),
+    onSuccess: () => { invalidate(); toast.success('Shared reminder saved'); },
+  });
+
+  const deleteSharedReminder = useMutation({
+    mutationFn: ({ spaceId, id }: { spaceId: string; id: string }) =>
+      api.delete(`/shared/${spaceId}/reminders/${id}`),
+    onSuccess: () => { invalidate(); toast.success('Shared reminder removed'); },
   });
 
   return (
@@ -439,6 +598,80 @@ function RemindersTab() {
           </div>
         )}
       </section>
+
+      {sharedGroups.map((group) => {
+        const draft = sharedDrafts[group.spaceId] || { title: '', dueDate: todayISO() };
+        return (
+          <section key={group.spaceId} className="bg-violet-50 border border-violet-200 rounded-2xl p-4 space-y-3">
+            <h3 className="font-semibold text-violet-900">Shared reminders with {group.partnerName}</h3>
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={draft.title}
+                onChange={(e) =>
+                  setSharedDrafts((prev) => ({
+                    ...prev,
+                    [group.spaceId]: { ...draft, title: e.target.value },
+                  }))
+                }
+                placeholder="Shared reminder..."
+                className="flex-1 min-w-[160px] px-3 py-2 border rounded-lg text-sm bg-white"
+              />
+              <input
+                type="date"
+                value={draft.dueDate}
+                onChange={(e) =>
+                  setSharedDrafts((prev) => ({
+                    ...prev,
+                    [group.spaceId]: { ...draft, dueDate: e.target.value },
+                  }))
+                }
+                className="px-3 py-2 border rounded-lg text-sm bg-white"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!draft.title.trim()) return;
+                  addSharedReminder.mutate({
+                    spaceId: group.spaceId,
+                    reminderTitle: draft.title.trim(),
+                    reminderDueDate: draft.dueDate,
+                  });
+                  setSharedDrafts((prev) => ({
+                    ...prev,
+                    [group.spaceId]: { title: '', dueDate: todayISO() },
+                  }));
+                }}
+                disabled={!draft.title.trim()}
+                className="px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                Add shared
+              </button>
+            </div>
+            {group.reminders.length === 0 ? (
+              <p className="text-sm text-violet-600/70">No shared reminders yet.</p>
+            ) : (
+              <div className="bg-white rounded-xl border divide-y">
+                {group.reminders.map((r) => (
+                  <div key={r.id} className="flex items-start gap-3 p-3 group">
+                    <Bell size={16} className="text-violet-500 mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm">{r.title}</p>
+                      <p className="text-xs text-gray-400">{formatDate(r.dueDate)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => deleteSharedReminder.mutate({ spaceId: group.spaceId, id: r.id })}
+                      className="opacity-0 group-hover:opacity-100 p-2 text-gray-400 hover:text-red-500"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }

@@ -61,8 +61,19 @@ export function VisionBoardPage() {
     queryFn: () => api.get('/vision-board'),
   });
 
+  const { data: sharedVision } = useQuery<{
+    groups: Array<{ spaceId: string; partnerName: string; items: VisionBoardItemEnriched[] }>;
+  }>({
+    queryKey: ['shared-vision'],
+    queryFn: () => api.get('/shared/vision'),
+  });
+
+  const sharedGroups = sharedVision?.groups ?? [];
+  const [sharedTitle, setSharedTitle] = useState<Record<string, string>>({});
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['vision-board'] });
+    queryClient.invalidateQueries({ queryKey: ['shared-vision'] });
   };
 
   const saveItem = useMutation({
@@ -99,6 +110,24 @@ export function VisionBoardPage() {
       invalidate();
       toast.success('Removed from board');
     },
+  });
+
+  const addSharedVision = useMutation({
+    mutationFn: ({ spaceId, title }: { spaceId: string; title: string }) =>
+      api.post(`/shared/${spaceId}/vision`, { title, emoji: '✨', category: 'OTHER', color: '#6366F1' }),
+    onSuccess: () => { invalidate(); toast.success('Added to shared vision board'); },
+  });
+
+  const toggleSharedAchieved = useMutation({
+    mutationFn: ({ spaceId, id }: { spaceId: string; id: string }) =>
+      api.patch(`/shared/${spaceId}/vision/${id}/achieve`),
+    onSuccess: invalidate,
+  });
+
+  const deleteSharedVision = useMutation({
+    mutationFn: ({ spaceId, id }: { spaceId: string; id: string }) =>
+      api.delete(`/shared/${spaceId}/vision/${id}`),
+    onSuccess: () => { invalidate(); toast.success('Removed from shared board'); },
   });
 
   const openAdd = (preset?: Partial<FormState>) => {
@@ -193,6 +222,53 @@ export function VisionBoardPage() {
           </button>
         ))}
       </div>
+
+      {sharedGroups.length > 0 && (
+        <div className="space-y-4">
+          {sharedGroups.map((group) => (
+            <section key={group.spaceId} className="bg-violet-50 border border-violet-200 rounded-2xl p-4 space-y-3">
+              <h2 className="font-semibold text-violet-900">Shared vision with {group.partnerName}</h2>
+              <div className="flex gap-2">
+                <input
+                  value={sharedTitle[group.spaceId] || ''}
+                  onChange={(e) => setSharedTitle((prev) => ({ ...prev, [group.spaceId]: e.target.value }))}
+                  placeholder="Add a shared dream or goal..."
+                  className="flex-1 px-3 py-2 border rounded-xl text-sm bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const title = (sharedTitle[group.spaceId] || '').trim();
+                    if (!title) return;
+                    addSharedVision.mutate({ spaceId: group.spaceId, title });
+                    setSharedTitle((prev) => ({ ...prev, [group.spaceId]: '' }));
+                  }}
+                  disabled={!(sharedTitle[group.spaceId] || '').trim()}
+                  className="px-4 py-2 bg-violet-600 text-white rounded-xl text-sm font-medium disabled:opacity-50"
+                >
+                  Add
+                </button>
+              </div>
+              {group.items.length === 0 ? (
+                <p className="text-sm text-violet-600/70">No shared visions yet.</p>
+              ) : (
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {group.items.map((item) => (
+                    <VisionCard
+                      key={item.id}
+                      item={item}
+                      members={members}
+                      onEdit={() => undefined}
+                      onToggle={() => toggleSharedAchieved.mutate({ spaceId: group.spaceId, id: item.id })}
+                      onDelete={() => deleteSharedVision.mutate({ spaceId: group.spaceId, id: item.id })}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          ))}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
