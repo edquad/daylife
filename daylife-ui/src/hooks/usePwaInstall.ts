@@ -12,6 +12,10 @@ function isStandaloneMode() {
   );
 }
 
+function isAndroidDevice() {
+  return /android/i.test(window.navigator.userAgent);
+}
+
 function isIosDevice() {
   return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
 }
@@ -61,18 +65,23 @@ export function usePwaInstall() {
   }, []);
 
   const canInstall = !!installPrompt && !isStandalone;
-  const showIosHint = isIosDevice() && !isStandalone && isMobileDevice() && !bannerDismissed;
+  const isAndroid = isAndroidDevice();
+  const isIos = isIosDevice();
+  const showIosHint = isIos && !isStandalone && isMobileDevice() && !bannerDismissed;
   const showAndroidInstall = canInstall && !bannerDismissed;
+  const showAndroidHint = isAndroid && !isStandalone && !canInstall && isMobileDevice() && !bannerDismissed;
 
   return {
     canInstall,
     install,
     isStandalone,
-    isIos: isIosDevice(),
+    isIos,
+    isAndroid,
     isMobile: isMobileDevice(),
-    showBanner: (showIosHint || showAndroidInstall) && !isStandalone,
+    showBanner: (showIosHint || showAndroidInstall || showAndroidHint) && !isStandalone,
     showIosHint,
     showAndroidInstall,
+    showAndroidHint,
     dismissBanner,
   };
 }

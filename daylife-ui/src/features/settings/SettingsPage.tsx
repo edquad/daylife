@@ -14,11 +14,12 @@ import {
 import { toast } from '../../components/Toaster';
 import { Heart, Download, Upload, Trash2, UserPlus, LogOut, Cloud, RefreshCw, Smartphone } from 'lucide-react';
 import { usePwaInstall } from '../../hooks/usePwaInstall';
+import { AndroidInstallSteps, IosInstallSteps } from '../../components/InstallInstructions';
 
 export function SettingsPage() {
   const { user, logout } = useAuth();
   const { config, status, statusMessage, cloudReady, pullFromGitHub, syncToGitHub } = useGitHubSync();
-  const { install, isStandalone, isIos, showIosHint, showAndroidInstall } = usePwaInstall();
+  const { install, isStandalone, isIos, isAndroid, showIosHint, showAndroidInstall, showAndroidHint } = usePwaInstall();
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(user?.name || '');
@@ -228,19 +229,11 @@ export function SettingsPage() {
                 <Smartphone size={16} /> Install on this device
               </button>
             )}
-            {(showIosHint || isIos) && (
-              <div className="text-sm text-gray-600 bg-gray-50 rounded-xl p-4 space-y-2">
-                <p className="font-medium text-gray-800">iPhone / iPad (Safari)</p>
-                <ol className="list-decimal list-inside space-y-1">
-                  <li>Open this site in Safari</li>
-                  <li>Tap the Share button</li>
-                  <li>Choose <strong>Add to Home Screen</strong></li>
-                </ol>
-              </div>
-            )}
-            {!showAndroidInstall && !isIos && (
+            {(showAndroidHint || (isAndroid && !showAndroidInstall)) && <AndroidInstallSteps />}
+            {(showIosHint || isIos) && <IosInstallSteps />}
+            {!isAndroid && !isIos && !showAndroidInstall && (
               <p className="text-sm text-gray-500">
-                On Android Chrome, use the browser menu → <strong>Install app</strong> or <strong>Add to Home screen</strong>.
+                Open this page on your phone in Chrome (Android) or Safari (iPhone) to install.
               </p>
             )}
           </>
