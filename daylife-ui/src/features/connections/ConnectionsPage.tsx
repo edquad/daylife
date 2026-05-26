@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { normalizeUsername } from '../../lib/accounts';
+import { APP_NAME } from '../../lib/brand';
 import { SharedFeatureLinks } from '../../components/SharedFeatureLinks';
 
 const FEATURE_ICONS: Record<ShareFeature, typeof CheckSquare> = {
@@ -256,7 +257,7 @@ export function ConnectionsPage() {
             {cloudReady && (
               <div className="mt-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">
-                  People on DayLife
+                  People on {APP_NAME}
                 </p>
                 {availableUsernames.length === 0 ? (
                   <p className="text-xs text-gray-400">

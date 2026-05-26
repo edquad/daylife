@@ -1192,7 +1192,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     }
 
     if (data.householdType !== 'FAMILY' && data.householdType !== 'GROUP') {
-      throw new ApiError(403, 'Ask the person who set up DayLife to add you in Settings → People');
+      throw new ApiError(403, 'Ask the person who set up Rozka to add you in Settings → People');
     }
     const member: User = {
       id: uid(),

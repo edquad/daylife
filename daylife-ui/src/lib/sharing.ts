@@ -199,7 +199,7 @@ async function writeGitHubJson(path: string, data: unknown, sha?: string, messag
   if (!isGitHubConfigured(config)) throw new Error('Cloud sync not available');
   const url = `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${path}`;
   const body: Record<string, string> = {
-    message: message || `DayLife update ${path}`,
+    message: message || `Rozka update ${path}`,
     content: encodeBase64Utf8(JSON.stringify(data, null, 2)),
     branch: config.branch,
   };
@@ -239,7 +239,7 @@ export async function pushInbox(accountId: string, inbox: AccountInbox): Promise
     inboxPath(accountId),
     { ...inbox, updatedAt: new Date().toISOString() },
     remote?.sha,
-    'DayLife share invite',
+    'Rozka share invite',
   );
 }
 
@@ -251,7 +251,7 @@ export async function fetchSharedSpace(spaceId: string): Promise<SharedSpaceData
 export async function saveSharedSpace(space: SharedSpaceData): Promise<void> {
   const remote = await readGitHubJson<SharedSpaceData>(sharedSpacePath(space.id));
   const stamped = normalizeSharedSpace({ ...space, updatedAt: new Date().toISOString() });
-  await writeGitHubJson(sharedSpacePath(space.id), stamped, remote?.sha, 'DayLife shared space');
+  await writeGitHubJson(sharedSpacePath(space.id), stamped, remote?.sha, 'Rozka shared space');
 }
 
 export async function updatePartnerConnection(
@@ -269,7 +269,7 @@ export async function updatePartnerConnection(
     path,
     { ...remote.data, connections, updatedAt: new Date().toISOString() },
     remote.sha,
-    'DayLife connection update',
+    'Rozka connection update',
   );
 }
 

@@ -5,6 +5,7 @@ import { useGitHubSync } from '../../features/sync/GitHubSyncContext';
 import { api } from '../../lib/api';
 import { DayPicker } from '../DayPicker';
 import { InstallAppBanner } from '../InstallAppBanner';
+import { APP_NAME, APP_TAGLINE } from '../../lib/brand';
 import {
   LayoutDashboard, CheckSquare, Receipt, Briefcase, Home, Settings,
   Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star, HandCoins, Users, Mic,
@@ -67,8 +68,8 @@ export function AppShell() {
               <Heart size={16} />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-brand-700">DayLife</h1>
-              <p className="text-xs text-gray-400">Daily planner</p>
+              <h1 className="text-lg font-bold text-brand-700">{APP_NAME}</h1>
+              <p className="text-xs text-gray-400">{APP_TAGLINE}</p>
             </div>
           </div>
         </div>
@@ -99,7 +100,7 @@ export function AppShell() {
           <div className="fixed inset-0 bg-black/50" onClick={() => setSidebarOpen(false)} />
           <aside className="relative w-72 bg-white flex flex-col z-10">
             <div className="p-4 border-b flex justify-between items-center">
-              <h1 className="text-xl font-bold text-brand-700">DayLife</h1>
+              <h1 className="text-xl font-bold text-brand-700">{APP_NAME}</h1>
               <button onClick={() => setSidebarOpen(false)}><X size={20} /></button>
             </div>
             <nav className="flex-1 py-2">

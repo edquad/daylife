@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { APP_NAME } from '../lib/brand';
 import { RefreshCw, X } from 'lucide-react';
 import { applyAppUpdate } from '../lib/appUpdate';
 
@@ -18,7 +19,7 @@ export function AppUpdateBanner() {
       <div className="max-w-lg mx-auto flex items-center gap-3">
         <RefreshCw size={18} className="shrink-0" />
         <p className="text-sm font-medium flex-1">
-          New DayLife version — tap Update for username login & latest features
+          New {APP_NAME} version — tap Update for the latest features
         </p>
         <button
           type="button"

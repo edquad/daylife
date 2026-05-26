@@ -72,7 +72,7 @@ async function saveRegistry(registry: AccountRegistry, sha?: string): Promise<vo
   const stamped: AccountRegistry = { ...registry, updatedAt: new Date().toISOString() };
   const url = `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${REGISTRY_PATH}`;
   const body: Record<string, string> = {
-    message: `DayLife accounts ${stamped.updatedAt}`,
+    message: `Rozka accounts ${stamped.updatedAt}`,
     content: encodeBase64Utf8(JSON.stringify(stamped, null, 2)),
     branch: config.branch,
   };

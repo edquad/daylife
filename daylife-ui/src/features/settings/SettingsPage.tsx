@@ -18,6 +18,7 @@ import { usePwaInstall } from '../../hooks/usePwaInstall';
 import { AndroidInstallSteps, IosInstallSteps } from '../../components/InstallInstructions';
 import { PinModal } from '../../components/PinModal';
 import { ApiError } from '../../lib/api';
+import { APP_NAME, APP_TAGLINE } from '../../lib/brand';
 import { forceAppRefresh } from '../../lib/appUpdate';
 
 export function SettingsPage() {
@@ -130,7 +131,7 @@ export function SettingsPage() {
       <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-3">
         <h2 className="font-semibold">Account</h2>
         <p className="text-sm text-gray-500">
-          This is your personal DayLife. Log out to sign in as someone else.
+          This is your personal {APP_NAME}. Log out to sign in as someone else.
         </p>
         <button onClick={logout}
           className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50 text-gray-700">
@@ -299,7 +300,7 @@ export function SettingsPage() {
         {isStandalone ? (
           <div className="space-y-3">
             <p className="text-sm text-green-700">
-              DayLife is installed on this device. Your data stays synced with the website via GitHub cloud save.
+              {APP_NAME} is installed on this device. Your data stays synced with the website via GitHub cloud save.
             </p>
             <p className="text-sm text-gray-500">
               If you still see the old login (pick a name / household), the app cache is outdated. Tap below to load the latest version with username sign-in.
@@ -315,12 +316,12 @@ export function SettingsPage() {
         ) : (
           <>
             <p className="text-sm text-gray-500">
-              Install DayLife on your phone — same login, same tasks, expenses & vision board as the website. No app store needed.
+              Install {APP_NAME} on your phone — {APP_TAGLINE.toLowerCase()}. Same login, tasks & expenses as the website.
             </p>
             {showAndroidInstall && (
               <button
                 type="button"
-                onClick={() => install().then((ok) => ok && toast.success('DayLife installed'))}
+                onClick={() => install().then((ok) => ok && toast.success(`${APP_NAME} installed`))}
                 className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
               >
                 <Smartphone size={16} /> Install on this device
@@ -342,7 +343,7 @@ export function SettingsPage() {
           <Cloud size={18} className="text-brand-600" /> Cloud save
         </h2>
         <p className="text-sm text-gray-500">
-          Your tasks, expenses, shopping list and more save automatically. Open DayLife on any phone or computer — same data everywhere.
+          Your tasks, expenses, shopping list and more save automatically. Open {APP_NAME} on any phone or computer — same data everywhere.
         </p>
         <p className={`text-sm ${status === 'error' ? 'text-red-600' : status === 'syncing' ? 'text-amber-700' : 'text-green-700'}`}>
           {status === 'error'

@@ -15,9 +15,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
-        name: 'DayLife — Daily life, together',
-        short_name: 'DayLife',
-        description: 'Your personal daily planner — tasks, expenses & more, synced to the cloud.',
+        name: 'Rozka — Your day in one place',
+        short_name: 'Rozka',
+        description: 'Tasks, expenses, shopping, routines & shared lists — your daily life in one simple app.',
         theme_color: '#0F766E',
         background_color: '#F9FAFB',
         display: 'standalone',

@@ -1,3 +1,4 @@
+import { APP_NAME } from '../lib/brand';
 import { Smartphone, X } from 'lucide-react';
 import { usePwaInstall } from '../hooks/usePwaInstall';
 import { AndroidInstallSteps, IosInstallSteps } from './InstallInstructions';
@@ -21,7 +22,7 @@ export function InstallAppBanner() {
           <Smartphone size={20} />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-brand-900">Install DayLife on your phone</p>
+          <p className="font-semibold text-brand-900">Install {APP_NAME} on your phone</p>
           <p className="text-sm text-brand-800 mt-1">
             Same login, tasks & expenses as the website — synced automatically.
           </p>

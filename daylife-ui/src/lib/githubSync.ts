@@ -137,7 +137,7 @@ export async function pushToGitHub(config: GitHubSyncConfig, data: AppData, sha?
   const stamped: AppData = { ...data, updatedAt: data.updatedAt || new Date().toISOString() };
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
   const body: Record<string, string> = {
-    message: `DayLife sync ${stamped.updatedAt}`,
+    message: `Rozka sync ${stamped.updatedAt}`,
     content: encodeBase64Utf8(JSON.stringify(stamped, null, 2)),
     branch,
   };

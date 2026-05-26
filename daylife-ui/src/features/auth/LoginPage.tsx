@@ -4,6 +4,7 @@ import { useGitHubSync } from '../sync/GitHubSyncContext';
 import { ApiError } from '../../lib/api';
 import { normalizeUsername, validateUsername } from '../../lib/accounts';
 import { validatePinFormat } from '../../lib/pin';
+import { APP_NAME, APP_TAGLINE } from '../../lib/brand';
 import { Heart, Loader2 } from 'lucide-react';
 
 type Tab = 'login' | 'signup';
@@ -74,8 +75,8 @@ export function LoginPage() {
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-600 text-white mb-4">
             <Heart size={28} />
           </div>
-          <h1 className="text-3xl font-bold text-brand-700">DayLife</h1>
-          <p className="text-gray-500 mt-1">Plan your day — tasks, money, notes & more</p>
+          <h1 className="text-3xl font-bold text-brand-700">{APP_NAME}</h1>
+          <p className="text-gray-500 mt-1">{APP_TAGLINE}</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border p-6">

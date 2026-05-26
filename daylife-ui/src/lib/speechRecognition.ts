@@ -41,7 +41,7 @@ export function speechErrorMessage(code: string): string {
   switch (code) {
     case 'not-allowed':
     case 'service-not-allowed':
-      return 'Microphone blocked — allow it in phone Settings → browser → DayLife';
+      return 'Microphone blocked — allow it in phone Settings → browser → Rozka';
     case 'no-speech':
       return 'Did not hear anything — hold mic and speak clearly';
     case 'network':
