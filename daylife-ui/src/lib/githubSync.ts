@@ -1,6 +1,7 @@
 import type { AppData } from './storage';
 import { loadData, saveDataLocal, normalizeAppData, parseJsonText, sanitizeJsonText, jsonNeedsSanitizing } from './storage';
 import { getActiveAccountId, accountCloudPath } from './accounts';
+import { mergeConnections } from './sharing';
 
 const CONFIG_KEY = 'daylife_github_sync';
 
@@ -168,19 +169,39 @@ export function pickNewerData(local: AppData, remote: AppData): 'local' | 'remot
   return remoteTime > localTime ? 'remote' : 'local';
 }
 
+export function mergeAppData(local: AppData, remote: AppData): AppData {
+  const winner = pickNewerData(local, remote);
+  const base = winner === 'remote' ? remote : local;
+  const other = winner === 'remote' ? local : remote;
+  return {
+    ...base,
+    connections: mergeConnections(other.connections, base.connections),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/** Push local data to cloud immediately (used after accepting a share invite). */
+export async function flushCloudSyncNow(): Promise<void> {
+  const config = loadGitHubConfig();
+  if (!isGitHubConfigured(config)) return;
+  const local = loadData();
+  const remote = await fetchFromGitHub(config);
+  const merged = remote ? mergeAppData(local, remote.data) : local;
+  saveDataLocal(merged);
+  const sha = await pushToGitHub(config, merged, remote?.sha ?? config.lastSha);
+  saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
+}
+
 export async function pullAndMerge(config: GitHubSyncConfig): Promise<'local' | 'remote' | 'none'> {
   const remote = await fetchFromGitHub(config);
   if (!remote) return 'none';
 
   const local = loadData();
-  const winner = pickNewerData(local, remote.data);
-
-  if (winner === 'remote') {
-    saveDataLocal(remote.data);
-  }
+  const merged = mergeAppData(local, remote.data);
+  saveDataLocal(merged);
 
   saveGitHubConfig({ lastSha: remote.sha, lastSyncedAt: new Date().toISOString() });
-  return winner;
+  return pickNewerData(local, remote.data);
 }
 
 export async function syncNow(config: GitHubSyncConfig): Promise<void> {
@@ -193,13 +214,10 @@ export async function syncNow(config: GitHubSyncConfig): Promise<void> {
     return;
   }
 
-  const winner = pickNewerData(local, remote.data);
-  const chosen = winner === 'remote' ? remote.data : local;
-  if (winner === 'remote') {
-    saveDataLocal(remote.data);
-  }
+  const merged = mergeAppData(local, remote.data);
+  saveDataLocal(merged);
 
-  const sha = await pushToGitHub(config, chosen, remote.sha);
+  const sha = await pushToGitHub(config, merged, remote.sha);
   saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
 }
 

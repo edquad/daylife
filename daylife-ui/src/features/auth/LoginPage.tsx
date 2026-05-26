@@ -75,7 +75,7 @@ export function LoginPage() {
             <Heart size={28} />
           </div>
           <h1 className="text-3xl font-bold text-brand-700">DayLife</h1>
-          <p className="text-gray-500 mt-1">Your personal daily planner</p>
+          <p className="text-gray-500 mt-1">Plan your day — tasks, money, notes & more</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border p-6">
@@ -163,8 +163,8 @@ export function LoginPage() {
             </button>
           </form>
 
-          <p className="text-xs text-gray-400 text-center mt-6">
-            Your account is yours alone — tasks, notes & expenses sync to your own cloud space.
+          <p className="text-xs text-gray-400 text-center mt-6 leading-relaxed">
+            Your account is yours alone. Later, use <span className="font-medium text-gray-500">Share</span> to invite someone by username — only what you pick gets shared.
           </p>
           <p className="text-xs text-gray-400 text-center mt-2">
             Still see old login? Open in browser and reinstall, or tap Update when the banner appears.

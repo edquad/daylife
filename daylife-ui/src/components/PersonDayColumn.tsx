@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Circle, Trash2 } from 'lucide-react';
+import { CheckCircle2, Circle, Trash2, Lock } from 'lucide-react';
 import { api, Task, User } from '../lib/api';
 import { AREA_COLORS, AREA_LABELS, cn } from '../lib/utils';
 import { toast } from './Toaster';
@@ -43,7 +43,7 @@ export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = t
     onSuccess: () => {
       setNewTitle('');
       invalidate();
-      toast.success(`Added for ${person.name}`);
+      toast.success(highlight ? 'Added to your list' : `Added for ${person.name}`);
     },
   });
 
@@ -70,20 +70,20 @@ export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = t
       <div
         key={task.id}
         className={cn(
-          'flex items-start gap-3 p-3 rounded-xl group transition-colors',
+          'flex items-start gap-3 p-3 rounded-xl group transition-colors active:scale-[0.99]',
           isDone ? 'bg-green-50/80' : 'bg-gray-50 hover:bg-gray-100',
         )}
       >
         <button
           type="button"
           onClick={() => toggleTask.mutate(task.id)}
-          className="shrink-0 mt-0.5"
-          title={isDone ? 'Mark not done' : 'Mark done'}
+          className="shrink-0 mt-0.5 p-1 -m-1 touch-manipulation"
+          aria-label={isDone ? 'Mark not done' : 'Mark done'}
         >
           {isDone ? (
-            <CheckCircle2 size={22} className="text-green-500" />
+            <CheckCircle2 size={24} className="text-green-500" />
           ) : (
-            <Circle size={22} className="text-gray-300 hover:text-brand-600" />
+            <Circle size={24} className="text-gray-300 hover:text-brand-600" />
           )}
         </button>
         <div className="flex-1 min-w-0">
@@ -95,17 +95,31 @@ export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = t
         <button
           type="button"
           onClick={() => deleteTask.mutate(task.id)}
-          className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 shrink-0"
+          className="p-2 text-gray-400 hover:text-red-500 shrink-0 opacity-60 sm:opacity-0 sm:group-hover:opacity-100 touch-manipulation"
+          aria-label="Delete task"
         >
-          <Trash2 size={14} />
+          <Trash2 size={16} />
         </button>
       </div>
     );
   };
 
   return (
-    <section className={cn('bg-white rounded-2xl border shadow-sm flex flex-col min-h-[420px]', highlight && 'ring-2 ring-brand-200')}>
+    <section
+      className={cn(
+        'bg-white rounded-2xl border shadow-sm flex flex-col min-h-[380px] overflow-hidden',
+        highlight ? 'ring-2 ring-brand-200 border-brand-100' : 'border-gray-200',
+      )}
+    >
       <div className="p-4 border-b">
+        {highlight && (
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-brand-600 text-white flex items-center gap-1">
+              <Lock size={10} /> Just you
+            </span>
+            <span className="text-[10px] text-gray-500">Only you can see this</span>
+          </div>
+        )}
         <div className="flex items-center gap-3 mb-3">
           <div
             className="w-11 h-11 rounded-full flex items-center justify-center text-white text-lg font-bold shadow-sm"
@@ -114,18 +128,16 @@ export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = t
             {person.name[0]}
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-bold text-lg truncate">{person.name}</h2>
-            <p className="text-xs text-gray-500">
-              {doneCount} of {total} done
-            </p>
+            <h2 className="font-bold text-lg truncate">{highlight ? 'My tasks' : person.name}</h2>
+            <p className="text-xs text-gray-500">{doneCount} of {total} done today</p>
           </div>
-          <span className="text-sm font-bold tabular-nums" style={{ color: person.color }}>
+          <span className="text-lg font-bold tabular-nums" style={{ color: person.color }}>
             {progress}%
           </span>
         </div>
-        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
           <div
-            className="h-full rounded-full transition-all duration-300"
+            className="h-full rounded-full transition-all duration-500"
             style={{ width: `${progress}%`, backgroundColor: person.color }}
           />
         </div>
@@ -133,18 +145,24 @@ export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = t
 
       <div className="p-3 space-y-2 flex-1 overflow-y-auto max-h-[50vh] lg:max-h-none">
         {pending.length === 0 && (!showCompleted || done.length === 0) && (
-          <p className="text-center text-gray-400 text-sm py-8">No tasks yet — add one below</p>
+          <div className="text-center py-8 px-2">
+            <p className="text-sm font-medium text-gray-600">All clear for today</p>
+            <p className="text-xs text-gray-400 mt-1">Tap below to add a private task</p>
+          </div>
         )}
         {pending.map(renderTask)}
         {showCompleted && done.length > 0 && (
           <>
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide pt-2 px-1">Completed</p>
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide pt-2 px-1">Done</p>
             {done.map(renderTask)}
           </>
         )}
       </div>
 
-      <form onSubmit={handleAdd} className="p-3 border-t bg-gray-50/80 rounded-b-2xl space-y-2">
+      <form onSubmit={handleAdd} className="p-3 border-t bg-gray-50/80 space-y-2">
+        <p className="text-[11px] text-gray-600 font-medium">
+          {highlight ? 'Add to my private list' : `Add for ${person.name}`}
+        </p>
         <div className="flex flex-wrap gap-1">
           {AREA_OPTIONS.map((a) => (
             <button
@@ -152,8 +170,8 @@ export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = t
               type="button"
               onClick={() => setArea(a)}
               className={cn(
-                'text-[10px] px-2 py-0.5 rounded-full border transition-colors',
-                area === a ? AREA_COLORS[a] + ' border-transparent' : 'bg-white text-gray-500 border-gray-200',
+                'text-[10px] px-2.5 py-1 rounded-full border transition-all touch-manipulation',
+                area === a ? AREA_COLORS[a] + ' border-transparent scale-105' : 'bg-white text-gray-500 border-gray-200',
               )}
             >
               {AREA_LABELS[a]}
@@ -164,13 +182,13 @@ export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = t
           <input
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
-            placeholder={`Add task for ${person.name}...`}
-            className="flex-1 px-3 py-2.5 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+            placeholder={highlight ? 'What do you need to do?' : `Task for ${person.name}…`}
+            className="flex-1 px-3 py-3 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand-500 bg-white"
           />
           <button
             type="submit"
             disabled={!newTitle.trim() || addTask.isPending}
-            className="px-4 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-50"
+            className="px-4 py-3 rounded-xl text-sm font-semibold text-white active:scale-95 disabled:opacity-50 touch-manipulation"
             style={{ backgroundColor: person.color }}
           >
             Add

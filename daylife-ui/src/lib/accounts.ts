@@ -96,6 +96,12 @@ export async function resolveAccountId(username: string): Promise<string | null>
   return registry.accounts[key] || null;
 }
 
+/** All usernames registered in cloud (for invite picker). */
+export async function listRegisteredUsernames(): Promise<string[]> {
+  const { registry } = await fetchRegistry();
+  return Object.keys(registry.accounts).sort((a, b) => a.localeCompare(b));
+}
+
 export async function createAccount(username: string): Promise<string> {
   const key = normalizeUsername(username);
   const err = validateUsername(key);

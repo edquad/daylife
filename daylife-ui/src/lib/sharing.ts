@@ -39,6 +39,41 @@ export const SHARE_FEATURE_GROUPS: Array<{ title: string; features: ShareFeature
   { title: 'Dreams', features: ['vision'] },
 ];
 
+export const SHARE_FEATURE_PAGES: Record<ShareFeature, { label: string; path: string }> = {
+  tasks: { label: 'Today → tasks', path: '/' },
+  expenses: { label: 'Expenses', path: '/expenses' },
+  splits: { label: 'Split money', path: '/splits' },
+  shopping: { label: 'Daily life → Shopping', path: '/daily?tab=shopping' },
+  reminders: { label: 'Daily life → Reminders', path: '/daily?tab=reminders' },
+  routines: { label: 'Daily life → Routines', path: '/daily?tab=routines' },
+  notes: { label: 'Today → notes', path: '/' },
+  vision: { label: 'Vision board', path: '/vision' },
+};
+
+function connectionRank(status: Connection['status']): number {
+  if (status === 'active') return 4;
+  if (status === 'pending_received' || status === 'pending_sent') return 3;
+  if (status === 'declined') return 1;
+  return 0;
+}
+
+/** Keep the best connection state when local and cloud differ (fixes lost accepts). */
+export function mergeConnections(local: Connection[] = [], remote: Connection[] = []): Connection[] {
+  const map = new Map<string, Connection>();
+  for (const c of [...remote, ...local]) {
+    const prev = map.get(c.inviteId);
+    if (!prev || connectionRank(c.status) >= connectionRank(prev.status)) {
+      map.set(c.inviteId, {
+        ...prev,
+        ...c,
+        sharedSpaceId: c.sharedSpaceId || prev?.sharedSpaceId,
+        features: c.features?.length ? c.features : prev?.features || [],
+      });
+    }
+  }
+  return Array.from(map.values());
+}
+
 export const SHARE_FEATURE_LABELS: Record<ShareFeature, { title: string; description: string }> = {
   tasks: { title: 'Tasks', description: 'Shared column on Today — both add & complete' },
   expenses: { title: 'Expenses', description: 'Shared spending log on Expenses & Today' },
@@ -230,7 +265,12 @@ export async function updatePartnerConnection(
   const idx = connections.findIndex((c) => c.inviteId === connection.inviteId);
   if (idx >= 0) connections[idx] = connection;
   else connections.push(connection);
-  await writeGitHubJson(path, { ...remote.data, connections }, remote.sha, 'DayLife connection update');
+  await writeGitHubJson(
+    path,
+    { ...remote.data, connections, updatedAt: new Date().toISOString() },
+    remote.sha,
+    'DayLife connection update',
+  );
 }
 
 export function emptySharedSpace(

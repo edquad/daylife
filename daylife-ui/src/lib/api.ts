@@ -26,7 +26,7 @@ import {
 import type { ItemVisibility } from './privacy';
 import { defaultVisibility, isVisibleToViewer } from './privacy';
 import { hashPin, verifyPin, validatePinFormat } from './pin';
-import { normalizeUsername, validateUsername, resolveAccountId, getActiveAccountId } from './accounts';
+import { normalizeUsername, validateUsername, resolveAccountId, getActiveAccountId, listRegisteredUsernames } from './accounts';
 import {
   type Connection,
   type ShareFeature,
@@ -45,6 +45,7 @@ import {
   SHARE_FEATURE_GROUPS,
   fetchAccountUserProfile,
 } from './sharing';
+import { flushCloudSyncNow } from './githubSync';
 
 export type { Connection, ShareFeature, ShareInvite };
 export { ALL_SHARE_FEATURES, SHARE_FEATURE_LABELS, SHARE_FEATURE_GROUPS };
@@ -1771,6 +1772,19 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
   }
 
   // Connections & shared spaces
+  if (route === '/accounts/usernames' && method === 'GET') {
+    const me = data.users.find((u) => u.id === sessionId);
+    const myUsername = me?.username ? normalizeUsername(me.username) : '';
+    const connected = new Set(
+      (data.connections || [])
+        .filter((c) => c.status === 'active' || c.status === 'pending_sent' || c.status === 'pending_received')
+        .map((c) => normalizeUsername(c.partnerUsername)),
+    );
+    const all = await listRegisteredUsernames();
+    const usernames = all.filter((u) => u !== myUsername && !connected.has(u));
+    return { usernames } as T;
+  }
+
   if (route === '/connections' && method === 'GET') {
     return (data.connections || []) as T;
   }
@@ -1901,6 +1915,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     conn.status = 'active';
     conn.sharedSpaceId = spaceId;
     saveData(data);
+    await flushCloudSyncNow();
     const inbox = await fetchInbox(accountId);
     inbox.invites = inbox.invites.filter((i) => i.id !== inviteId);
     await pushInbox(accountId, inbox);

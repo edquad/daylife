@@ -1,7 +1,7 @@
 import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { api, Expense, Task, User } from '../../lib/api';
+import { api, Expense, Task, User, Connection } from '../../lib/api';
 import { useAuth } from '../auth/AuthContext';
 import { useDateStore } from '../../lib/dateStore';
 import { formatDayHeading, formatMoney, todayISO } from '../../lib/format';
@@ -11,8 +11,10 @@ import { SharedDayColumn } from '../../components/SharedDayColumn';
 import { VisibilityToggle } from '../../components/VisibilityToggle';
 import { defaultVisibility } from '../../lib/privacy';
 import type { ItemVisibility } from '../../lib/privacy';
-import { Receipt, AlertCircle, Plus, StickyNote, CheckSquare, ShoppingCart, Sun, Bell, Sparkles, Star } from 'lucide-react';
+import { Receipt, AlertCircle, Plus, StickyNote, CheckSquare, ShoppingCart, Sun, Bell, Sparkles, Star, Lock, Users } from 'lucide-react';
 import { AREA_COLORS, AREA_LABELS, memberGridClass } from '../../lib/utils';
+import { SectionHeader } from '../../components/SectionHeader';
+import { SharedFeatureLinks } from '../../components/SharedFeatureLinks';
 import { HOUSEHOLD_TYPE_LABELS } from '../../lib/household';
 
 interface PersonSummary {
@@ -79,6 +81,13 @@ export function DashboardPage() {
     queryFn: () => api.get(`/shared/summary?date=${selectedDate}`),
   });
 
+  const { data: connections = [] } = useQuery<Connection[]>({
+    queryKey: ['connections'],
+    queryFn: () => api.get('/connections'),
+  });
+
+  const hasActiveShare = connections.some((c) => c.status === 'active');
+  const activeConnections = connections.filter((c) => c.status === 'active');
   const sharedColumns = sharedSummary?.columns ?? [];
   const sharedExpenseGroups = sharedSummary?.expenseGroups ?? [];
   const sharedNoteGroups = sharedSummary?.noteGroups ?? [];
@@ -291,7 +300,13 @@ export function DashboardPage() {
         </section>
       )}
 
-      <div className={memberGridClass(members.length + sharedColumns.length)}>
+      <SectionHeader
+        icon={Lock}
+        title="Just for you"
+        subtitle="Private tasks only you can see"
+        iconClassName="bg-brand-50"
+      />
+      <div className={memberGridClass(members.length)}>
         {[...members]
           .sort((a, b) => {
             if (a.id === user?.id) return -1;
@@ -310,16 +325,67 @@ export function DashboardPage() {
             />
           );
         })}
-        {sharedColumns.map((col) => (
-          <SharedDayColumn
-            key={col.spaceId}
-            spaceId={col.spaceId}
-            partnerName={col.partnerName}
-            tasks={col.tasks}
-            selectedDate={selectedDate}
-          />
-        ))}
       </div>
+
+      {sharedColumns.length > 0 ? (
+        <>
+          <SectionHeader
+            icon={Users}
+            title="Together"
+            subtitle="Shared tasks — you and your partner both see these"
+            action={{ label: 'Manage sharing', to: '/connections' }}
+            iconClassName="bg-violet-50"
+            iconColorClassName="text-violet-600"
+          />
+          <div className={memberGridClass(sharedColumns.length)}>
+            {sharedColumns.map((col) => (
+              <SharedDayColumn
+                key={col.spaceId}
+                spaceId={col.spaceId}
+                partnerName={col.partnerName}
+                tasks={col.tasks}
+                selectedDate={selectedDate}
+              />
+            ))}
+          </div>
+        </>
+      ) : hasActiveShare ? (
+        activeConnections.map((conn) => (
+          <div
+            key={conn.id}
+            className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50/80 to-fuchsia-50/50 p-5"
+          >
+            <p className="font-semibold text-violet-900">
+              Connected with @{conn.partnerUsername}
+            </p>
+            <p className="text-sm text-violet-700 mt-1">
+              Tasks are not shared, but other features are. Open the pages below to see shared lists.
+            </p>
+            <SharedFeatureLinks features={conn.features} className="mt-4" />
+            <Link to="/connections" className="inline-block mt-3 text-sm font-medium text-violet-600 hover:underline">
+              Manage sharing →
+            </Link>
+          </div>
+        ))
+      ) : (
+        <Link
+          to="/connections"
+          className="block rounded-2xl border-2 border-dashed border-violet-200 bg-gradient-to-br from-violet-50/80 to-fuchsia-50/50 p-5 hover:border-violet-300 transition-colors active:scale-[0.99]"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-11 h-11 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
+              <Users size={22} className="text-violet-600" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-violet-900">Share with someone?</p>
+              <p className="text-sm text-violet-700 mt-1">
+                Invite by username to share tasks, expenses, shopping, and more — your private stuff stays private.
+              </p>
+              <span className="inline-block mt-3 text-sm font-medium text-violet-600">Go to Share →</span>
+            </div>
+          </div>
+        </Link>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-5">
         <section className="bg-white rounded-2xl border shadow-sm p-4">
