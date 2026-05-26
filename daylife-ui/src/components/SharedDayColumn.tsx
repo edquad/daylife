@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Circle, Trash2, Users, Sparkles } from 'lucide-react';
+import { CheckCircle2, Circle, Trash2, Users } from 'lucide-react';
 import { api, Task } from '../lib/api';
 import { AREA_COLORS, AREA_LABELS, cn } from '../lib/utils';
 import { toast } from './Toaster';
@@ -99,36 +99,27 @@ export function SharedDayColumn({ spaceId, partnerName, tasks, selectedDate }: S
   };
 
   return (
-    <section className="bg-white rounded-2xl border-2 border-violet-200 shadow-sm flex flex-col min-h-[380px] overflow-hidden">
-      <div className="p-4 border-b bg-gradient-to-br from-violet-50 via-fuchsia-50 to-white">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-violet-600 text-white">
-            Together
-          </span>
-          <span className="text-[10px] text-violet-600">Both of you can edit</span>
-        </div>
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-11 h-11 rounded-full flex items-center justify-center text-violet-700 bg-white border-2 border-violet-200 shadow-sm">
-            <Users size={20} />
+    <section className="bg-white rounded-2xl border border-violet-200 shadow-sm flex flex-col overflow-hidden min-h-0">
+      <div className="px-3 py-2.5 border-b bg-violet-50/80">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center text-violet-700 bg-white border border-violet-200 shrink-0">
+            <Users size={16} />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-bold text-lg truncate text-violet-900">With {partnerName}</h2>
-            <p className="text-xs text-violet-600">{doneCount} of {total} done today</p>
+            <h2 className="font-semibold text-base truncate text-violet-900">With {partnerName}</h2>
+            {total > 0 && (
+              <p className="text-xs text-violet-600">{doneCount} of {total} done</p>
+            )}
           </div>
-          <span className="text-lg font-bold tabular-nums text-violet-700">{progress}%</span>
-        </div>
-        <div className="h-2.5 bg-white rounded-full overflow-hidden border border-violet-100">
-          <div className="h-full rounded-full transition-all duration-500 bg-violet-500" style={{ width: `${progress}%` }} />
+          {total > 0 && (
+            <span className="text-sm font-bold tabular-nums text-violet-700 shrink-0">{progress}%</span>
+          )}
         </div>
       </div>
 
-      <div className="p-3 space-y-2 flex-1 overflow-y-auto max-h-[50vh] lg:max-h-none">
+      <div className="p-2 space-y-1.5 flex-1 overflow-y-auto max-h-[40vh]">
         {pending.length === 0 && done.length === 0 && (
-          <div className="text-center py-8 px-2">
-            <Sparkles size={28} className="mx-auto text-violet-300 mb-2" />
-            <p className="text-sm font-medium text-violet-800">Nothing shared yet</p>
-            <p className="text-xs text-violet-600 mt-1">Add a task below — {partnerName} will see it too</p>
-          </div>
+          <p className="text-sm text-violet-600/70 text-center py-6">No shared tasks yet</p>
         )}
         {pending.map(renderTask)}
         {done.length > 0 && (
@@ -139,34 +130,18 @@ export function SharedDayColumn({ spaceId, partnerName, tasks, selectedDate }: S
         )}
       </div>
 
-      <form onSubmit={handleAdd} className="p-3 border-t border-violet-100 bg-violet-50/40 space-y-2">
-        <p className="text-[11px] text-violet-700 font-medium">Add to shared list</p>
-        <div className="flex flex-wrap gap-1">
-          {AREA_OPTIONS.map((a) => (
-            <button
-              key={a}
-              type="button"
-              onClick={() => setArea(a)}
-              className={cn(
-                'text-[10px] px-2.5 py-1 rounded-full border transition-all touch-manipulation',
-                area === a ? AREA_COLORS[a] + ' border-transparent scale-105' : 'bg-white text-gray-500 border-gray-200',
-              )}
-            >
-              {AREA_LABELS[a]}
-            </button>
-          ))}
-        </div>
+      <form onSubmit={handleAdd} className="p-2 border-t border-violet-100 bg-violet-50/40">
         <div className="flex gap-2">
           <input
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
-            placeholder={`e.g. Buy groceries together`}
-            className="flex-1 px-3 py-3 border border-violet-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+            placeholder="Add shared task..."
+            className="flex-1 px-3 py-2.5 border border-violet-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-violet-500 bg-white"
           />
           <button
             type="submit"
             disabled={!newTitle.trim() || addTask.isPending}
-            className="px-4 py-3 rounded-xl text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 active:scale-95 disabled:opacity-50 touch-manipulation"
+            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 active:scale-95 disabled:opacity-50 touch-manipulation"
           >
             Add
           </button>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Circle, Trash2, Lock } from 'lucide-react';
+import { CheckCircle2, Circle, Trash2 } from 'lucide-react';
 import { api, Task, User } from '../lib/api';
 import { AREA_COLORS, AREA_LABELS, cn } from '../lib/utils';
 import { toast } from './Toaster';
@@ -13,9 +13,10 @@ interface PersonDayColumnProps {
   selectedDate: string;
   showCompleted?: boolean;
   highlight?: boolean;
+  compact?: boolean;
 }
 
-export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = true, highlight }: PersonDayColumnProps) {
+export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = true, highlight, compact }: PersonDayColumnProps) {
   const queryClient = useQueryClient();
   const [newTitle, setNewTitle] = useState('');
   const [area, setArea] = useState<Task['area']>('PERSONAL');
@@ -107,48 +108,47 @@ export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = t
   return (
     <section
       className={cn(
-        'bg-white rounded-2xl border shadow-sm flex flex-col min-h-[380px] overflow-hidden',
-        highlight ? 'ring-2 ring-brand-200 border-brand-100' : 'border-gray-200',
+        'bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col overflow-hidden',
+        compact ? 'min-h-0' : 'min-h-[320px]',
       )}
     >
-      <div className="p-4 border-b">
-        {highlight && (
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-brand-600 text-white flex items-center gap-1">
-              <Lock size={10} /> Just you
+      <div className={cn('border-b', compact ? 'px-3 py-2.5' : 'p-4')}>
+        <div className="flex items-center gap-2.5">
+          {!compact && (
+            <div
+              className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
+              style={{ backgroundColor: person.color }}
+            >
+              {person.name[0]}
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <h2 className="font-semibold text-base truncate">
+              {highlight ? (compact ? 'Tasks' : 'My tasks') : person.name}
+            </h2>
+            {total > 0 && (
+              <p className="text-xs text-gray-500">{doneCount} of {total} done</p>
+            )}
+          </div>
+          {total > 0 && (
+            <span className="text-sm font-bold tabular-nums shrink-0" style={{ color: person.color }}>
+              {progress}%
             </span>
-            <span className="text-[10px] text-gray-500">Only you can see this</span>
+          )}
+        </div>
+        {total > 0 && (
+          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mt-2">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${progress}%`, backgroundColor: person.color }}
+            />
           </div>
         )}
-        <div className="flex items-center gap-3 mb-3">
-          <div
-            className="w-11 h-11 rounded-full flex items-center justify-center text-white text-lg font-bold shadow-sm"
-            style={{ backgroundColor: person.color }}
-          >
-            {person.name[0]}
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="font-bold text-lg truncate">{highlight ? 'My tasks' : person.name}</h2>
-            <p className="text-xs text-gray-500">{doneCount} of {total} done today</p>
-          </div>
-          <span className="text-lg font-bold tabular-nums" style={{ color: person.color }}>
-            {progress}%
-          </span>
-        </div>
-        <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{ width: `${progress}%`, backgroundColor: person.color }}
-          />
-        </div>
       </div>
 
-      <div className="p-3 space-y-2 flex-1 overflow-y-auto max-h-[50vh] lg:max-h-none">
+      <div className={cn('space-y-1.5 flex-1 overflow-y-auto', compact ? 'p-2 max-h-[40vh]' : 'p-3 max-h-[50vh] lg:max-h-none')}>
         {pending.length === 0 && (!showCompleted || done.length === 0) && (
-          <div className="text-center py-8 px-2">
-            <p className="text-sm font-medium text-gray-600">All clear for today</p>
-            <p className="text-xs text-gray-400 mt-1">Tap below to add a private task</p>
-          </div>
+          <p className="text-sm text-gray-400 text-center py-6">No tasks yet</p>
         )}
         {pending.map(renderTask)}
         {showCompleted && done.length > 0 && (
@@ -159,36 +159,35 @@ export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = t
         )}
       </div>
 
-      <form onSubmit={handleAdd} className="p-3 border-t bg-gray-50/80 space-y-2">
-        <p className="text-[11px] text-gray-600 font-medium">
-          {highlight ? 'Add to my private list' : `Add for ${person.name}`}
-        </p>
-        <div className="flex flex-wrap gap-1">
-          {AREA_OPTIONS.map((a) => (
-            <button
-              key={a}
-              type="button"
-              onClick={() => setArea(a)}
-              className={cn(
-                'text-[10px] px-2.5 py-1 rounded-full border transition-all touch-manipulation',
-                area === a ? AREA_COLORS[a] + ' border-transparent scale-105' : 'bg-white text-gray-500 border-gray-200',
-              )}
-            >
-              {AREA_LABELS[a]}
-            </button>
-          ))}
-        </div>
+      <form onSubmit={handleAdd} className={cn('border-t bg-gray-50/80', compact ? 'p-2 space-y-1.5' : 'p-3 space-y-2')}>
+        {!compact && (
+          <div className="flex flex-wrap gap-1">
+            {AREA_OPTIONS.map((a) => (
+              <button
+                key={a}
+                type="button"
+                onClick={() => setArea(a)}
+                className={cn(
+                  'text-[10px] px-2.5 py-1 rounded-full border transition-all touch-manipulation',
+                  area === a ? AREA_COLORS[a] + ' border-transparent' : 'bg-white text-gray-500 border-gray-200',
+                )}
+              >
+                {AREA_LABELS[a]}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex gap-2">
           <input
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
-            placeholder={highlight ? 'What do you need to do?' : `Task for ${person.name}…`}
-            className="flex-1 px-3 py-3 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand-500 bg-white"
+            placeholder="Add a task..."
+            className="flex-1 px-3 py-2.5 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand-500 bg-white"
           />
           <button
             type="submit"
             disabled={!newTitle.trim() || addTask.isPending}
-            className="px-4 py-3 rounded-xl text-sm font-semibold text-white active:scale-95 disabled:opacity-50 touch-manipulation"
+            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white active:scale-95 disabled:opacity-50 touch-manipulation"
             style={{ backgroundColor: person.color }}
           >
             Add

@@ -7,8 +7,9 @@ import { DayPicker } from '../DayPicker';
 import { InstallAppBanner } from '../InstallAppBanner';
 import {
   LayoutDashboard, CheckSquare, Receipt, Briefcase, Home, Settings,
-  Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star, HandCoins, Users,
+  Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star, HandCoins, Users, Mic,
 } from 'lucide-react';
+import { VoiceAssistantSheet, VoiceMicButton } from '../VoiceAssistant';
 
 const baseNavItems = [
   { path: '/', label: 'Today', icon: LayoutDashboard },
@@ -36,6 +37,7 @@ export function AppShell() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobileAddOpen, setMobileAddOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
 
   const navItems = baseNavItems;
 
@@ -115,6 +117,7 @@ export function AppShell() {
               <DayPicker compact />
             </div>
             <div className="flex-1" />
+            <VoiceMicButton onClick={() => setVoiceOpen(true)} size="sm" className="shrink-0" />
             {cloudReady && (
               <Link
                 to="/settings"
@@ -170,9 +173,10 @@ export function AppShell() {
               </Link>
             );
           })}
+          <VoiceMicButton onClick={() => setVoiceOpen(true)} size="sm" className="-mt-6 shrink-0" />
           <button
             onClick={() => setMobileAddOpen(!mobileAddOpen)}
-            className="w-11 h-11 bg-accent-500 rounded-full flex items-center justify-center text-white shadow-lg -mt-6"
+            className="w-11 h-11 bg-accent-500 rounded-full flex items-center justify-center text-white shadow-lg -mt-6 shrink-0"
           >
             <Plus size={22} />
           </button>
@@ -192,6 +196,20 @@ export function AppShell() {
           <div className="fixed inset-0 bg-black/50" onClick={() => setMobileAddOpen(false)} />
           <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl p-6 z-10">
             <h3 className="text-lg font-semibold mb-4">Quick add</h3>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileAddOpen(false);
+                setVoiceOpen(true);
+              }}
+              className="w-full flex items-center gap-3 p-4 mb-4 rounded-xl border-2 border-violet-200 bg-violet-50 text-violet-900 touch-manipulation"
+            >
+              <Mic size={22} className="text-violet-600 shrink-0" />
+              <div className="text-left">
+                <p className="font-semibold text-sm">Voice add</p>
+                <p className="text-xs text-violet-700">Say task, expense, or shopping</p>
+              </div>
+            </button>
             <div className="grid grid-cols-2 gap-3">
               {[
                 { label: 'Add task', path: '/tasks?add=true', icon: CheckSquare },
@@ -216,6 +234,8 @@ export function AppShell() {
           </div>
         </div>
       )}
+
+      <VoiceAssistantSheet open={voiceOpen} onClose={() => setVoiceOpen(false)} />
     </div>
   );
 }

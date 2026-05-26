@@ -11,11 +11,19 @@ import { SharedDayColumn } from '../../components/SharedDayColumn';
 import { VisibilityToggle } from '../../components/VisibilityToggle';
 import { defaultVisibility } from '../../lib/privacy';
 import type { ItemVisibility } from '../../lib/privacy';
-import { Receipt, AlertCircle, Plus, StickyNote, CheckSquare, ShoppingCart, Sun, Bell, Sparkles, Star, Lock, Users } from 'lucide-react';
+import {
+  AlertCircle,
+  Plus,
+  StickyNote,
+  ShoppingCart,
+  Sun,
+  Bell,
+  Receipt,
+  Users,
+  ChevronRight,
+} from 'lucide-react';
 import { AREA_COLORS, AREA_LABELS, memberGridClass } from '../../lib/utils';
-import { SectionHeader } from '../../components/SectionHeader';
 import { SharedFeatureLinks } from '../../components/SharedFeatureLinks';
-import { HOUSEHOLD_TYPE_LABELS } from '../../lib/household';
 
 interface PersonSummary {
   userId: string;
@@ -43,8 +51,31 @@ interface DaySummary {
   routineTotal?: number;
   upcomingReminders?: Array<{ id: string; title: string; nextDate: string; daysUntil: number }>;
   recentNotes: Array<{ id: string; content: string; area: string; author: { name: string } }>;
-  householdType?: string;
-  householdName?: string;
+}
+
+function QuickLink({
+  to,
+  icon,
+  label,
+  detail,
+}: {
+  to: string;
+  icon: React.ReactNode;
+  label: string;
+  detail?: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className="flex items-center gap-2.5 shrink-0 min-w-[7.5rem] px-3 py-2.5 bg-white border border-gray-200 rounded-xl hover:border-brand-300 hover:bg-brand-50/30 transition-colors touch-manipulation"
+    >
+      <span className="text-brand-600">{icon}</span>
+      <div className="min-w-0">
+        <p className="text-xs text-gray-500">{label}</p>
+        {detail && <p className="text-sm font-semibold text-gray-900 truncate">{detail}</p>}
+      </div>
+    </Link>
+  );
 }
 
 export function DashboardPage() {
@@ -57,19 +88,9 @@ export function DashboardPage() {
     queryFn: () => api.get(`/dashboard/summary?date=${selectedDate}`),
   });
 
-  const { data: household } = useQuery<{ householdType: string; householdName?: string }>({
-    queryKey: ['household'],
-    queryFn: () => api.get('/household'),
-  });
-
   const { data: members = [] } = useQuery<User[]>({
     queryKey: ['users'],
     queryFn: () => api.get('/users'),
-  });
-
-  const { data: visionItems = [] } = useQuery<Array<{ id: string; title: string; emoji?: string; achieved: boolean }>>({
-    queryKey: ['vision-board', 'preview'],
-    queryFn: () => api.get('/vision-board?achieved=false'),
   });
 
   const { data: sharedSummary } = useQuery<{
@@ -110,6 +131,7 @@ export function DashboardPage() {
   });
 
   const [dayNote, setDayNote] = React.useState('');
+  const [showNote, setShowNote] = React.useState(false);
   const [sharedNoteDrafts, setSharedNoteDrafts] = React.useState<Record<string, string>>({});
   const [noteVisibility, setNoteVisibility] = React.useState<ItemVisibility>(
     defaultVisibility(members.length),
@@ -117,180 +139,147 @@ export function DashboardPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 animate-pulse space-y-4">
-        <div className="h-10 bg-gray-200 rounded w-64" />
-        <div className="grid lg:grid-cols-2 gap-4">
-          <div className="h-96 bg-gray-200 rounded-2xl" />
-          <div className="h-96 bg-gray-200 rounded-2xl" />
-        </div>
+      <div className="p-4 max-w-3xl mx-auto animate-pulse space-y-4">
+        <div className="h-9 bg-gray-200 rounded w-48" />
+        <div className="h-64 bg-gray-200 rounded-2xl" />
       </div>
     );
   }
 
   const byPerson = data?.byPerson ?? [];
-  const sortedByPerson = [...byPerson].sort((a, b) => {
-    if (a.userId === user?.id) return -1;
-    if (b.userId === user?.id) return 1;
-    return 0;
-  });
   const isMultiMember = members.length > 1;
   const isToday = selectedDate === todayISO();
   const monthKey = selectedDate.slice(0, 7);
-  const monthTasksDone = data?.monthTasksDone ?? 0;
-  const monthTasksTotal = data?.monthTasksTotal ?? 0;
   const monthTasksPending = data?.monthTasksPending ?? [];
   const shoppingPending = data?.shoppingPending ?? 0;
   const routineDone = data?.routineDone ?? 0;
   const routineTotal = data?.routineTotal ?? 0;
   const upcomingReminders = data?.upcomingReminders ?? [];
+  const todayExpenses = data?.todayExpenses ?? [];
+  const hasTodayExpenses =
+    todayExpenses.length > 0 || sharedExpenseGroups.some((g) => g.expenses.length > 0);
 
   return (
-    <div className="p-4 lg:p-6 space-y-5">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{formatDayHeading(selectedDate)}</h1>
-          <p className="text-gray-500 text-sm">Your tasks, spend & notes for this day</p>
+    <div className="p-4 lg:p-6 max-w-3xl mx-auto space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-gray-900 truncate">{formatDayHeading(selectedDate)}</h1>
+          {user?.name && isToday && (
+            <p className="text-sm text-gray-500">Hi {user.name.split(' ')[0]}</p>
+          )}
         </div>
         <DayPicker />
       </div>
 
       {(data?.overdueCount ?? 0) > 0 && isToday && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
-          <AlertCircle size={16} />
-          {data!.overdueCount} overdue task{data!.overdueCount !== 1 ? 's' : ''} from earlier days
-          <Link to="/tasks?status=TODO" className="ml-auto font-medium underline">View</Link>
-        </div>
+        <Link
+          to="/tasks?status=TODO"
+          className="flex items-center gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800"
+        >
+          <AlertCircle size={16} className="shrink-0" />
+          <span>{data!.overdueCount} overdue — tap to view</span>
+          <ChevronRight size={16} className="ml-auto shrink-0" />
+        </Link>
       )}
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {sortedByPerson.map((p) => (
-          <div key={p.userId} className="bg-white rounded-xl border p-3 shadow-sm">
-            <p className="text-xs text-gray-500">{p.name}</p>
-            <p className="text-xl font-bold" style={{ color: p.color }}>
-              {p.done}/{p.total}
-            </p>
-            <p className="text-xs text-gray-400">tasks done</p>
-          </div>
+      <div className={memberGridClass(Math.max(members.length, 1) + sharedColumns.length)}>
+        {[...members]
+          .sort((a, b) => {
+            if (a.id === user?.id) return -1;
+            if (b.id === user?.id) return 1;
+            return 0;
+          })
+          .map((member) => {
+            const personData = byPerson.find((p) => p.userId === member.id);
+            return (
+              <PersonDayColumn
+                key={member.id}
+                person={member}
+                tasks={personData?.tasks ?? []}
+                selectedDate={selectedDate}
+                highlight={member.id === user?.id}
+                compact={member.id === user?.id && !isMultiMember}
+              />
+            );
+          })}
+        {sharedColumns.map((col) => (
+          <SharedDayColumn
+            key={col.spaceId}
+            spaceId={col.spaceId}
+            partnerName={col.partnerName}
+            tasks={col.tasks}
+            selectedDate={selectedDate}
+          />
         ))}
-        <div className="bg-white rounded-xl border p-3 shadow-sm">
-          <p className="text-xs text-gray-500 flex items-center gap-1"><Receipt size={12} /> Day spend</p>
-          <p className="text-xl font-bold tabular-nums">{formatMoney(data?.todayExpenseTotal)}</p>
-          <Link to={`/expenses?date=${selectedDate}`} className="text-xs text-brand-600 hover:underline">Log expense</Link>
-        </div>
-        <div className="bg-white rounded-xl border p-3 shadow-sm">
-          <p className="text-xs text-gray-500 flex items-center gap-1"><CheckSquare size={12} /> Month tasks</p>
-          <p className="text-xl font-bold tabular-nums">
-            {monthTasksDone}/{monthTasksTotal}
+      </div>
+
+      {hasActiveShare && sharedColumns.length === 0 && activeConnections.length > 0 && (
+        <div className="px-3 py-2.5 rounded-xl bg-violet-50 border border-violet-100 text-sm">
+          <p className="text-violet-900 font-medium">
+            Sharing with @{activeConnections[0].partnerUsername}
           </p>
-          <Link to={`/tasks?month=${monthKey}`} className="text-xs text-brand-600 hover:underline">
-            {monthTasksTotal - monthTasksDone} left this month
-          </Link>
+          <SharedFeatureLinks features={activeConnections[0].features} className="mt-2" />
         </div>
-        <div className="bg-white rounded-xl border p-3 shadow-sm">
-          <p className="text-xs text-gray-500">Month spend</p>
-          <p className="text-xl font-bold tabular-nums">{formatMoney(data?.monthExpenseTotal)}</p>
-          <Link to={`/reports?period=monthly&date=${monthKey}-01`} className="text-xs text-brand-600 hover:underline">
-            Full report
-          </Link>
-        </div>
-      </div>
-
-      <div className="grid sm:grid-cols-3 gap-3">
-        <Link to="/daily?tab=shopping" className="bg-white rounded-xl border p-4 shadow-sm hover:border-green-200 transition-colors">
-          <p className="text-xs text-gray-500 flex items-center gap-1"><ShoppingCart size={12} /> Shopping</p>
-          <p className="text-xl font-bold text-green-700">{shoppingPending}</p>
-          <p className="text-xs text-gray-400">items to buy</p>
-        </Link>
-        <Link to="/daily?tab=routines" className="bg-white rounded-xl border p-4 shadow-sm hover:border-amber-200 transition-colors">
-          <p className="text-xs text-gray-500 flex items-center gap-1"><Sun size={12} /> Routines</p>
-          <p className="text-xl font-bold text-amber-700">{routineDone}/{routineTotal}</p>
-          <p className="text-xs text-gray-400">habits done today</p>
-        </Link>
-        <Link to="/daily?tab=reminders" className="bg-white rounded-xl border p-4 shadow-sm hover:border-brand-200 transition-colors">
-          <p className="text-xs text-gray-500 flex items-center gap-1"><Bell size={12} /> Reminders</p>
-          <p className="text-xl font-bold text-brand-700">{upcomingReminders.length}</p>
-          <p className="text-xs text-gray-400">coming in 2 weeks</p>
-        </Link>
-      </div>
-
-      {visionItems.length > 0 ? (
-        <Link
-          to="/vision"
-          className="block bg-gradient-to-r from-violet-50 to-fuchsia-50 border border-violet-100 rounded-2xl p-4 hover:border-violet-200 transition-colors"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-semibold flex items-center gap-2 text-violet-900">
-              <Star size={16} className="text-violet-600" /> Vision board
-            </h3>
-            <span className="text-xs text-violet-600">Open →</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {visionItems.slice(0, 4).map((v) => (
-              <span key={v.id} className="text-sm bg-white/80 px-3 py-1 rounded-full border border-violet-100">
-                {v.emoji || '✨'} {v.title}
-              </span>
-            ))}
-          </div>
-        </Link>
-      ) : (
-        <Link
-          to="/vision"
-          className="flex items-center justify-between bg-gradient-to-r from-violet-50 to-fuchsia-50 border border-violet-100 rounded-2xl p-4 hover:border-violet-200 transition-colors"
-        >
-          <div>
-            <h3 className="font-semibold flex items-center gap-2 text-violet-900">
-              <Star size={16} className="text-violet-600" /> Vision board
-            </h3>
-            <p className="text-sm text-violet-700 mt-1">Add dreams, goals & photos — synced for you both</p>
-          </div>
-          <span className="text-sm text-violet-600 shrink-0">Start →</span>
-        </Link>
       )}
 
-      {upcomingReminders.length > 0 && isToday && (
-        <section className="bg-white rounded-2xl border shadow-sm p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold flex items-center gap-2">
-              <Sparkles size={16} className="text-brand-600" /> Coming up
-            </h3>
-            <Link to="/daily?tab=reminders" className="text-xs text-brand-600 hover:underline">All reminders</Link>
-          </div>
-          <div className="space-y-2">
-            {upcomingReminders.map((r) => (
-              <div key={r.id} className="flex justify-between items-center py-2 border-b last:border-0 text-sm">
-                <span className="font-medium">{r.title}</span>
-                <span className="text-xs text-gray-400">
-                  {r.daysUntil === 0 ? 'Today' : r.daysUntil === 1 ? 'Tomorrow' : `in ${r.daysUntil} days`}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
+      {!hasActiveShare && (
+        <p className="text-center text-sm text-gray-500">
+          Share lists with someone?{' '}
+          <Link to="/connections" className="text-brand-600 font-medium hover:underline">
+            Invite by username
+          </Link>
+        </p>
       )}
+
+      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+        <QuickLink
+          to={`/expenses?date=${selectedDate}`}
+          icon={<Receipt size={18} />}
+          label="Spent today"
+          detail={formatMoney(data?.todayExpenseTotal)}
+        />
+        <QuickLink
+          to="/daily?tab=routines"
+          icon={<Sun size={18} />}
+          label="Routines"
+          detail={`${routineDone}/${routineTotal}`}
+        />
+        <QuickLink
+          to="/daily?tab=shopping"
+          icon={<ShoppingCart size={18} />}
+          label="Shopping"
+          detail={shoppingPending === 0 ? 'All done' : `${shoppingPending} left`}
+        />
+        <QuickLink
+          to="/daily?tab=reminders"
+          icon={<Bell size={18} />}
+          label="Reminders"
+          detail={upcomingReminders.length === 0 ? 'None soon' : `${upcomingReminders.length} soon`}
+        />
+        <QuickLink
+          to="/connections"
+          icon={<Users size={18} />}
+          label="Share"
+          detail={hasActiveShare ? 'Connected' : 'Invite'}
+        />
+      </div>
 
       {monthTasksPending.length > 0 && (
-        <section className="bg-white rounded-2xl border shadow-sm p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold flex items-center gap-2">
-              <CheckSquare size={16} className="text-brand-600" /> Still open this month
-            </h3>
-            <Link to={`/tasks?month=${monthKey}&status=TODO`} className="text-xs text-brand-600 hover:underline">
-              View all
+        <section className="bg-white rounded-xl border p-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-800">Open this month</h3>
+            <Link to={`/tasks?month=${monthKey}&status=TODO`} className="text-xs text-brand-600">
+              All
             </Link>
           </div>
-          <div className="space-y-2">
-            {monthTasksPending.map((task) => (
+          <div className="space-y-1">
+            {monthTasksPending.slice(0, 3).map((task) => (
               <Link
                 key={task.id}
                 to={`/tasks?month=${monthKey}`}
-                className="flex items-center justify-between py-2 border-b last:border-0 hover:bg-gray-50 rounded-lg px-2 -mx-2"
+                className="flex items-center justify-between py-1.5 text-sm hover:bg-gray-50 rounded-lg px-1 -mx-1"
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{task.title}</p>
-                  <p className="text-xs text-gray-400">
-                    {task.dueDate?.slice(0, 10)} · {task.assignee?.name || 'Unassigned'}
-                  </p>
-                </div>
+                <span className="truncate font-medium">{task.title}</span>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full shrink-0 ml-2 ${AREA_COLORS[task.area]}`}>
                   {AREA_LABELS[task.area]}
                 </span>
@@ -300,220 +289,116 @@ export function DashboardPage() {
         </section>
       )}
 
-      <SectionHeader
-        icon={Lock}
-        title="Just for you"
-        subtitle="Private tasks only you can see"
-        iconClassName="bg-brand-50"
-      />
-      <div className={memberGridClass(members.length)}>
-        {[...members]
-          .sort((a, b) => {
-            if (a.id === user?.id) return -1;
-            if (b.id === user?.id) return 1;
-            return 0;
-          })
-          .map((member) => {
-          const personData = byPerson.find((p) => p.userId === member.id);
-          return (
-            <PersonDayColumn
-              key={member.id}
-              person={member}
-              tasks={personData?.tasks ?? []}
-              selectedDate={selectedDate}
-              highlight={member.id === user?.id}
-            />
-          );
-        })}
-      </div>
-
-      {sharedColumns.length > 0 ? (
-        <>
-          <SectionHeader
-            icon={Users}
-            title="Together"
-            subtitle="Shared tasks — you and your partner both see these"
-            action={{ label: 'Manage sharing', to: '/connections' }}
-            iconClassName="bg-violet-50"
-            iconColorClassName="text-violet-600"
-          />
-          <div className={memberGridClass(sharedColumns.length)}>
-            {sharedColumns.map((col) => (
-              <SharedDayColumn
-                key={col.spaceId}
-                spaceId={col.spaceId}
-                partnerName={col.partnerName}
-                tasks={col.tasks}
-                selectedDate={selectedDate}
-              />
-            ))}
-          </div>
-        </>
-      ) : hasActiveShare ? (
-        activeConnections.map((conn) => (
-          <div
-            key={conn.id}
-            className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50/80 to-fuchsia-50/50 p-5"
-          >
-            <p className="font-semibold text-violet-900">
-              Connected with @{conn.partnerUsername}
-            </p>
-            <p className="text-sm text-violet-700 mt-1">
-              Tasks are not shared, but other features are. Open the pages below to see shared lists.
-            </p>
-            <SharedFeatureLinks features={conn.features} className="mt-4" />
-            <Link to="/connections" className="inline-block mt-3 text-sm font-medium text-violet-600 hover:underline">
-              Manage sharing →
-            </Link>
-          </div>
-        ))
-      ) : (
-        <Link
-          to="/connections"
-          className="block rounded-2xl border-2 border-dashed border-violet-200 bg-gradient-to-br from-violet-50/80 to-fuchsia-50/50 p-5 hover:border-violet-300 transition-colors active:scale-[0.99]"
-        >
-          <div className="flex items-start gap-3">
-            <div className="w-11 h-11 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
-              <Users size={22} className="text-violet-600" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold text-violet-900">Share with someone?</p>
-              <p className="text-sm text-violet-700 mt-1">
-                Invite by username to share tasks, expenses, shopping, and more — your private stuff stays private.
-              </p>
-              <span className="inline-block mt-3 text-sm font-medium text-violet-600">Go to Share →</span>
-            </div>
-          </div>
-        </Link>
-      )}
-
-      <div className="grid lg:grid-cols-2 gap-5">
-        <section className="bg-white rounded-2xl border shadow-sm p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold flex items-center gap-2">
-              <Receipt size={16} className="text-brand-600" /> Expenses this day
-            </h3>
+      {hasTodayExpenses && (
+        <section className="bg-white rounded-xl border p-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-800">Today&apos;s expenses</h3>
             <Link
               to={`/expenses?add=true&date=${selectedDate}`}
-              className="text-xs text-brand-600 hover:underline flex items-center gap-1"
+              className="text-xs text-brand-600 flex items-center gap-0.5"
             >
-              <Plus size={14} /> Add
+              <Plus size={12} /> Add
             </Link>
           </div>
-          {(data?.todayExpenses ?? []).length === 0 && sharedExpenseGroups.every((g) => g.expenses.length === 0) ? (
-            <p className="text-sm text-gray-400 py-4 text-center">No expenses logged</p>
-          ) : (
-            <div className="space-y-2">
-              {data!.todayExpenses.map((exp) => (
-                <div key={exp.id} className="flex justify-between items-center py-2 border-b last:border-0">
-                  <div>
-                    <p className="text-sm font-medium">{exp.description || exp.category.name}</p>
-                    <p className="text-xs text-gray-400">{exp.paidBy.name}</p>
-                  </div>
-                  <p className="font-semibold tabular-nums text-sm">{formatMoney(exp.amount)}</p>
+          <div className="space-y-1">
+            {todayExpenses.map((exp) => (
+              <div key={exp.id} className="flex justify-between text-sm py-1">
+                <span className="truncate">{exp.description || exp.category.name}</span>
+                <span className="font-medium tabular-nums shrink-0 ml-2">{formatMoney(exp.amount)}</span>
+              </div>
+            ))}
+            {sharedExpenseGroups.flatMap((group) =>
+              group.expenses.map((exp) => (
+                <div key={exp.id} className="flex justify-between text-sm py-1 text-violet-800">
+                  <span className="truncate">{exp.description || exp.category.name}</span>
+                  <span className="font-medium tabular-nums shrink-0 ml-2">{formatMoney(exp.amount)}</span>
                 </div>
-              ))}
-              {sharedExpenseGroups.map((group) =>
-                group.expenses.map((exp) => (
-                  <div key={exp.id} className="flex justify-between items-center py-2 border-b last:border-0 bg-violet-50/50 rounded-lg px-2 -mx-2">
-                    <div>
-                      <p className="text-sm font-medium">{exp.description || exp.category.name}</p>
-                      <p className="text-xs text-violet-600">Shared with {group.partnerName}</p>
-                    </div>
-                    <p className="font-semibold tabular-nums text-sm">{formatMoney(exp.amount)}</p>
-                  </div>
-                )),
-              )}
-            </div>
-          )}
+              )),
+            )}
+          </div>
         </section>
+      )}
 
-        <section className="bg-white rounded-2xl border shadow-sm p-4">
-          <h3 className="font-semibold flex items-center gap-2 mb-3">
+      <section className="bg-white rounded-xl border overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowNote((v) => !v)}
+          className="w-full flex items-center justify-between px-3 py-3 text-left hover:bg-gray-50 touch-manipulation"
+        >
+          <span className="text-sm font-semibold text-gray-800 flex items-center gap-2">
             <StickyNote size={16} className="text-brand-600" /> Day note
-          </h3>
-          <textarea
-            value={dayNote}
-            onChange={(e) => setDayNote(e.target.value)}
-            placeholder="Anything to remember about this day..."
-            rows={2}
-            className="w-full px-3 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand-500 mb-2"
-          />
-          {isMultiMember && (
-            <div className="mb-2">
-              <VisibilityToggle value={noteVisibility} onChange={setNoteVisibility} compact />
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              if (dayNote.trim()) {
-                addNote.mutate({
-                  content: dayNote.trim(),
-                  visibility: isMultiMember ? noteVisibility : 'SHARED',
-                });
-                setDayNote('');
-              }
-            }}
-            disabled={!dayNote.trim()}
-            className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
-          >
-            Save note
-          </button>
-          {(data?.recentNotes ?? []).length > 0 && (
-            <div className="mt-4 space-y-2">
-              {data!.recentNotes.map((note) => (
-                <div key={note.id} className="p-3 bg-gray-50 rounded-xl text-sm">
-                  <div className="flex gap-2 mb-1">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${AREA_COLORS[note.area]}`}>
-                      {AREA_LABELS[note.area]}
-                    </span>
-                    <span className="text-xs text-gray-400">{note.author.name}</span>
-                  </div>
-                  <p className="text-gray-700 whitespace-pre-wrap">{note.content}</p>
-                </div>
-              ))}
-            </div>
-          )}
-          {sharedNoteGroups.map((group) => (
-            <div key={group.spaceId} className="mt-4 pt-4 border-t border-violet-100">
-              <p className="text-xs font-medium text-violet-700 mb-2">Shared note with {group.partnerName}</p>
-              <textarea
-                value={sharedNoteDrafts[group.spaceId] || ''}
-                onChange={(e) =>
-                  setSharedNoteDrafts((prev) => ({ ...prev, [group.spaceId]: e.target.value }))
+          </span>
+          <span className="text-xs text-gray-400">{showNote ? 'Hide' : 'Add'}</span>
+        </button>
+        {showNote && (
+          <div className="px-3 pb-3 border-t">
+            <textarea
+              value={dayNote}
+              onChange={(e) => setDayNote(e.target.value)}
+              placeholder="Write something about today..."
+              rows={2}
+              className="w-full mt-3 px-3 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            {isMultiMember && (
+              <div className="mt-2">
+                <VisibilityToggle value={noteVisibility} onChange={setNoteVisibility} compact />
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                if (dayNote.trim()) {
+                  addNote.mutate({
+                    content: dayNote.trim(),
+                    visibility: isMultiMember ? noteVisibility : 'SHARED',
+                  });
+                  setDayNote('');
                 }
-                placeholder={`Note for you & ${group.partnerName}...`}
-                rows={2}
-                className="w-full px-3 py-2 border border-violet-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-violet-500 mb-2"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const content = (sharedNoteDrafts[group.spaceId] || '').trim();
-                  if (!content) return;
-                  addSharedNote.mutate({ spaceId: group.spaceId, content });
-                  setSharedNoteDrafts((prev) => ({ ...prev, [group.spaceId]: '' }));
-                }}
-                disabled={!(sharedNoteDrafts[group.spaceId] || '').trim()}
-                className="px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-50"
-              >
-                Save shared note
-              </button>
-              {group.notes.length > 0 && (
-                <div className="mt-3 space-y-2">
-                  {group.notes.map((note) => (
-                    <div key={note.id} className="p-3 bg-violet-50 rounded-xl text-sm">
-                      <p className="text-xs text-violet-600 mb-1">{note.author.name}</p>
-                      <p className="text-gray-700 whitespace-pre-wrap">{note.content}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </section>
-      </div>
+              }}
+              disabled={!dayNote.trim()}
+              className="mt-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+            >
+              Save
+            </button>
+            {(data?.recentNotes ?? []).length > 0 && (
+              <div className="mt-3 space-y-2">
+                {data!.recentNotes.map((note) => (
+                  <div key={note.id} className="p-2.5 bg-gray-50 rounded-lg text-sm text-gray-700">
+                    {note.content}
+                  </div>
+                ))}
+              </div>
+            )}
+            {sharedNoteGroups.map((group) => (
+              <div key={group.spaceId} className="mt-3 pt-3 border-t border-violet-100">
+                <p className="text-xs text-violet-700 mb-2">Note with {group.partnerName}</p>
+                <textarea
+                  value={sharedNoteDrafts[group.spaceId] || ''}
+                  onChange={(e) =>
+                    setSharedNoteDrafts((prev) => ({ ...prev, [group.spaceId]: e.target.value }))
+                  }
+                  placeholder={`For you & ${group.partnerName}...`}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-violet-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-violet-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const content = (sharedNoteDrafts[group.spaceId] || '').trim();
+                    if (!content) return;
+                    addSharedNote.mutate({ spaceId: group.spaceId, content });
+                    setSharedNoteDrafts((prev) => ({ ...prev, [group.spaceId]: '' }));
+                  }}
+                  disabled={!(sharedNoteDrafts[group.spaceId] || '').trim()}
+                  className="mt-2 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-medium disabled:opacity-50"
+                >
+                  Save shared note
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
