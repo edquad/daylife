@@ -41,7 +41,7 @@ jobs:
       - name: SPA fallback for GitHub Pages routes
         run: cp daylife-ui/dist/index.html daylife-ui/dist/404.html
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: daylife-ui/dist
 
