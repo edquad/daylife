@@ -53,7 +53,7 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
       invalidateApp();
       setConfig(loadGitHubConfig());
       setStatus('synced');
-      setStatusMessage('Up to date');
+      setStatusMessage('Everything synced');
     } catch (err: any) {
       setStatus('error');
       setStatusMessage(friendlySyncError(err));
@@ -89,7 +89,7 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
       const detail = (e as CustomEvent).detail;
       if (detail?.status === 'synced') {
         setStatus('synced');
-        setStatusMessage('Saved to cloud');
+        setStatusMessage('Saved');
         setConfig(loadGitHubConfig());
       }
       if (detail?.status === 'error') {
@@ -120,7 +120,7 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
           invalidateApp();
           setConfig(loadGitHubConfig());
           setStatus('synced');
-          setStatusMessage('Synced — changes save automatically');
+          setStatusMessage('Saved automatically');
         }
       } catch (err: any) {
         if (!cancelled) {

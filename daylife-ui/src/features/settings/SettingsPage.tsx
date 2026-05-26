@@ -252,20 +252,16 @@ export function SettingsPage() {
           <Cloud size={18} className="text-brand-600" /> Cloud save
         </h2>
         <p className="text-sm text-gray-500">
-          Always on — tasks, expenses, shopping & more sync to{' '}
-          <a
-            href={`https://github.com/${config.owner}/${config.repo}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-brand-600 hover:underline"
-          >
-            {config.owner}/{config.repo}
-          </a>
-          . Open the app on any device and your data is there.
+          Your tasks, expenses, shopping list and more save automatically. Open DayLife on any phone or computer — same data everywhere.
         </p>
-        <p className={`text-sm ${status === 'error' ? 'text-red-600' : 'text-green-700'}`}>
-          {statusMessage || (cloudReady ? 'Synced' : 'Waiting for cloud connection')}
-          {config.lastSyncedAt && ` · Last sync ${new Date(config.lastSyncedAt).toLocaleString()}`}
+        <p className={`text-sm ${status === 'error' ? 'text-red-600' : status === 'syncing' ? 'text-amber-700' : 'text-green-700'}`}>
+          {status === 'error'
+            ? statusMessage
+            : status === 'syncing'
+              ? 'Saving to cloud…'
+              : config.lastSyncedAt
+                ? `Saved · ${new Date(config.lastSyncedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`
+                : 'Saved to cloud'}
         </p>
         <div className="flex flex-wrap gap-2">
           <button

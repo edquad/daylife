@@ -136,7 +136,7 @@ export function AppShell() {
               >
                 {status === 'syncing' ? <Loader2 size={14} className="animate-spin" /> :
                   status === 'error' ? <CloudOff size={14} /> : <Cloud size={14} />}
-                GitHub
+                {status === 'syncing' ? 'Saving…' : status === 'error' ? 'Sync issue' : 'Saved'}
               </Link>
             )}
             {!cloudReady && (
