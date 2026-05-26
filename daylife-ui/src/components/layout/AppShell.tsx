@@ -5,6 +5,7 @@ import { useAuth } from '../../features/auth/AuthContext';
 import { useGitHubSync } from '../../features/sync/GitHubSyncContext';
 import { api, User } from '../../lib/api';
 import { DayPicker } from '../DayPicker';
+import { InstallAppBanner } from '../InstallAppBanner';
 import {
   LayoutDashboard, CheckSquare, Receipt, Briefcase, Home, Settings,
   Menu, X, Plus, LogOut, Heart, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star,
@@ -162,11 +163,12 @@ export function AppShell() {
           <div className="md:hidden px-4 pb-3">
             <DayPicker compact className="justify-center" />
           </div>
+          <InstallAppBanner />
         </header>
         <main className="flex-1 overflow-y-auto pb-20 lg:pb-6"><Outlet /></main>
       </div>
 
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t z-40">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t z-40 pb-safe">
         <div className="flex items-center justify-around h-16 px-1">
           {mobileBottomNav.map((item) => {
             const Icon = item.icon;

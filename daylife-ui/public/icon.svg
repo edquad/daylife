@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DayLife">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F766E"/>
+      <stop offset="100%" stop-color="#14B8A6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <path d="M256 392c-78-52-128-96-128-152a80 80 0 0 1 160 0c0 56-50 100-128 152z" fill="#ffffff" opacity="0.95"/>
+  <rect x="128" y="128" width="256" height="32" rx="16" fill="#ffffff" opacity="0.35"/>
+  <rect x="152" y="184" width="208" height="20" rx="10" fill="#ffffff" opacity="0.25"/>
+  <rect x="176" y="224" width="160" height="20" rx="10" fill="#ffffff" opacity="0.2"/>
+</svg>

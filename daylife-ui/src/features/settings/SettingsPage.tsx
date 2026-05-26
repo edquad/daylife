@@ -11,11 +11,13 @@ import {
   type HouseholdType,
 } from '../../lib/household';
 import { toast } from '../../components/Toaster';
-import { Heart, Download, Upload, Trash2, UserPlus, LogOut, Cloud, RefreshCw } from 'lucide-react';
+import { Heart, Download, Upload, Trash2, UserPlus, LogOut, Cloud, RefreshCw, Smartphone } from 'lucide-react';
+import { usePwaInstall } from '../../hooks/usePwaInstall';
 
 export function SettingsPage() {
   const { user, logout } = useAuth();
   const { config, status, statusMessage, cloudReady, pullFromGitHub, syncToGitHub } = useGitHubSync();
+  const { install, isStandalone, isIos, showIosHint, showAndroidInstall } = usePwaInstall();
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(user?.name || '');
@@ -200,6 +202,47 @@ export function SettingsPage() {
           className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50 text-gray-700">
           <LogOut size={16} /> Log out
         </button>
+      </section>
+
+      <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
+        <h2 className="font-semibold flex items-center gap-2">
+          <Smartphone size={18} className="text-brand-600" /> Phone app (free)
+        </h2>
+        {isStandalone ? (
+          <p className="text-sm text-green-700">
+            DayLife is installed on this device. Your data stays synced with the website via GitHub cloud save.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-gray-500">
+              Install DayLife on your phone — same login, same tasks, expenses & vision board as the website. No app store needed.
+            </p>
+            {showAndroidInstall && (
+              <button
+                type="button"
+                onClick={() => install().then((ok) => ok && toast.success('DayLife installed'))}
+                className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
+              >
+                <Smartphone size={16} /> Install on this device
+              </button>
+            )}
+            {(showIosHint || isIos) && (
+              <div className="text-sm text-gray-600 bg-gray-50 rounded-xl p-4 space-y-2">
+                <p className="font-medium text-gray-800">iPhone / iPad (Safari)</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Open this site in Safari</li>
+                  <li>Tap the Share button</li>
+                  <li>Choose <strong>Add to Home Screen</strong></li>
+                </ol>
+              </div>
+            )}
+            {!showAndroidInstall && !isIos && (
+              <p className="text-sm text-gray-500">
+                On Android Chrome, use the browser menu → <strong>Install app</strong> or <strong>Add to Home screen</strong>.
+              </p>
+            )}
+          </>
+        )}
       </section>
 
       <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
