@@ -18,7 +18,14 @@ const SESSION_KEY = 'daylife_session';
 
 /** Windows editors sometimes save JSON with a UTF-8 BOM, which breaks JSON.parse. */
 export function sanitizeJsonText(text: string): string {
-  return text.replace(/^\uFEFF/, '').trim();
+  let s = text.replace(/^\uFEFF/, '').trim();
+  const jsonStart = s.search(/[\[{]/);
+  if (jsonStart > 0) s = s.slice(jsonStart);
+  return s.trim();
+}
+
+export function jsonNeedsSanitizing(text: string): boolean {
+  return sanitizeJsonText(text) !== text.trim();
 }
 
 export function parseJsonText<T>(text: string): T {

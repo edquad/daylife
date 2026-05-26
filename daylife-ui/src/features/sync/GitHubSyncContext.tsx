@@ -11,6 +11,14 @@ import {
 } from '../../lib/githubSync';
 import { registerDataSaveHook } from '../../lib/storage';
 
+function friendlySyncError(err: unknown): string {
+  const msg = (err as Error)?.message || 'Could not sync';
+  if (msg.includes('Unexpected token') || msg.includes('not valid JSON') || msg.includes('\uFEFF')) {
+    return 'Cloud file had a bad format — hard refresh the page (Ctrl+Shift+R), then tap Sync now';
+  }
+  return msg;
+}
+
 interface GitHubSyncContextType {
   config: GitHubSyncConfig;
   status: SyncStatus;
@@ -48,7 +56,7 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
       setStatusMessage('Up to date');
     } catch (err: any) {
       setStatus('error');
-      setStatusMessage(err.message || 'Pull failed');
+      setStatusMessage(friendlySyncError(err));
       throw err;
     }
   }, [invalidateApp]);
@@ -66,7 +74,7 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
       setStatusMessage('Saved to cloud');
     } catch (err: any) {
       setStatus('error');
-      setStatusMessage(err.message || 'Sync failed');
+      setStatusMessage(friendlySyncError(err));
       throw err;
     }
   }, [invalidateApp]);
@@ -86,7 +94,7 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
       }
       if (detail?.status === 'error') {
         setStatus('error');
-        setStatusMessage(detail.message || 'Sync failed');
+        setStatusMessage(friendlySyncError(new Error(detail.message || 'Sync failed')));
       }
     };
     window.addEventListener('daylife-sync', onSync);
@@ -117,7 +125,7 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
       } catch (err: any) {
         if (!cancelled) {
           setStatus('error');
-          setStatusMessage(err.message || 'Could not sync');
+          setStatusMessage(friendlySyncError(err));
         }
       }
     })();

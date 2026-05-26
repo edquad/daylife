@@ -1,5 +1,5 @@
 import type { AppData } from './storage';
-import { loadData, saveDataLocal, normalizeAppData, parseJsonText } from './storage';
+import { loadData, saveDataLocal, normalizeAppData, parseJsonText, sanitizeJsonText, jsonNeedsSanitizing } from './storage';
 
 const CONFIG_KEY = 'daylife_github_sync';
 
@@ -81,6 +81,7 @@ function authHeaders(token: string): HeadersInit {
 interface RemoteFile {
   data: AppData;
   sha: string;
+  needsRepair?: boolean;
 }
 
 export async function fetchFromGitHub(config: GitHubSyncConfig): Promise<RemoteFile | null> {
@@ -95,13 +96,19 @@ export async function fetchFromGitHub(config: GitHubSyncConfig): Promise<RemoteF
     throw new Error(res.status === 401 ? 'Cloud sync auth failed' : `Could not read cloud data (${res.status})`);
   }
   const json = await res.json();
+  const decoded = decodeBase64Utf8(json.content);
+  const needsRepair = jsonNeedsSanitizing(decoded);
   let parsed: AppData;
   try {
-    parsed = parseJsonText<AppData>(decodeBase64Utf8(json.content));
+    parsed = parseJsonText<AppData>(decoded);
   } catch {
-    throw new Error('Cloud backup file is corrupted — try exporting locally and re-importing');
+    try {
+      parsed = JSON.parse(sanitizeJsonText(decoded)) as AppData;
+    } catch {
+      throw new Error('Cloud backup file is corrupted — export a local backup, then import it in Settings');
+    }
   }
-  return { data: normalizeAppData(parsed), sha: json.sha as string };
+  return { data: normalizeAppData(parsed), sha: json.sha as string, needsRepair };
 }
 
 export async function pushToGitHub(config: GitHubSyncConfig, data: AppData, sha?: string): Promise<string> {
@@ -170,13 +177,12 @@ export async function syncNow(config: GitHubSyncConfig): Promise<void> {
   }
 
   const winner = pickNewerData(local, remote.data);
+  const chosen = winner === 'remote' ? remote.data : local;
   if (winner === 'remote') {
     saveDataLocal(remote.data);
-    saveGitHubConfig({ lastSha: remote.sha, lastSyncedAt: new Date().toISOString() });
-    return;
   }
 
-  const sha = await pushToGitHub(config, local, remote.sha);
+  const sha = await pushToGitHub(config, chosen, remote.sha);
   saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
 }
 
