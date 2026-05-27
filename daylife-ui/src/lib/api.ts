@@ -46,6 +46,7 @@ import {
   SHARE_FEATURE_GROUPS,
   fetchAccountUserProfile,
   mergeConnections,
+  pruneStaleConnections,
 } from './sharing';
 import { fetchFromGitHub, flushCloudSyncNow, isGitHubConfigured, loadGitHubConfig } from './githubSync';
 
@@ -1119,23 +1120,30 @@ async function refreshConnectionsFromCloud(data: ReturnType<typeof loadData>): P
   }
 }
 
+async function pruneBrokenConnections(data: ReturnType<typeof loadData>): Promise<void> {
+  const before = JSON.stringify(data.connections || []);
+  data.connections = await pruneStaleConnections(data.connections || []);
+  if (JSON.stringify(data.connections) !== before) {
+    saveDataLocal(data);
+  }
+}
+
 async function readSharedSpace(
   conn: Connection,
   data: ReturnType<typeof loadData>,
-): Promise<SharedSpaceData> {
-  const accountId = getActiveAccountId() || '';
-  let space = await fetchSharedSpace(conn.sharedSpaceId!);
-  if (!space) {
-    space = emptySharedSpace(
-      conn.sharedSpaceId!,
-      conn.initiatedByMe ? accountId : conn.partnerAccountId,
-      conn.initiatedByMe ? conn.partnerAccountId : accountId,
-      conn.initiatedByMe ? data.users[0]?.username || 'you' : conn.partnerUsername,
-      conn.initiatedByMe ? conn.partnerUsername : data.users[0]?.username || 'you',
-      conn.features,
-    );
-  }
+): Promise<SharedSpaceData | null> {
+  const space = await fetchSharedSpace(conn.sharedSpaceId!);
+  if (!space) return null;
   return normalizeSharedSpace(space);
+}
+
+async function requireSharedSpace(
+  conn: Connection,
+  data: ReturnType<typeof loadData>,
+): Promise<SharedSpaceData> {
+  const space = await readSharedSpace(conn, data);
+  if (!space) throw new ApiError(403, 'Shared space not found — remove and re-send the invite from Share');
+  return space;
 }
 
 async function handleRequest<T>(path: string, method: string, body?: unknown): Promise<T> {
@@ -1923,13 +1931,15 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
 
   if (route === '/connections' && method === 'GET') {
     await refreshConnectionsFromCloud(data);
-    return (data.connections || []) as T;
+    await pruneBrokenConnections(data);
+    return (loadData().connections || []) as T;
   }
 
   if (route === '/connections/sync-inbox' && method === 'POST') {
     const accountId = getActiveAccountId();
     if (!accountId) throw new ApiError(400, 'Not signed in to an account');
     if (!data.connections) data.connections = [];
+    await pruneBrokenConnections(data);
     const inbox = await fetchInbox(accountId);
     for (const invite of inbox.invites) {
       if (data.connections.some((c) => c.inviteId === invite.id)) continue;
@@ -2090,11 +2100,15 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
 
   if (route === '/shared/summary' && method === 'GET') {
     await refreshConnectionsFromCloud(data);
+    await pruneBrokenConnections(data);
+    const fresh = loadData();
     const date = q.get('date') || todayISO();
-    const taskConnections = getActiveSharedConnections(data, 'tasks');
-    const columns = await Promise.all(
+    const taskConnections = getActiveSharedConnections(fresh, 'tasks');
+    const columns = (
+      await Promise.all(
       taskConnections.map(async (conn) => {
-        const space = await readSharedSpace(conn, data);
+        const space = await readSharedSpace(conn, fresh);
+        if (!space) return null;
         const tasks = space.tasks
           .filter((t) => t.dueDate?.slice(0, 10) === date)
           .map((t) => enrichTask(data, t));
@@ -2105,12 +2119,15 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
           tasks,
         };
       }),
-    );
+    )
+    ).filter((col): col is NonNullable<typeof col> => col !== null);
 
-    const expenseConnections = getActiveSharedConnections(data, 'expenses');
-    const expenseGroups = await Promise.all(
+    const expenseConnections = getActiveSharedConnections(fresh, 'expenses');
+    const expenseGroups = (
+      await Promise.all(
       expenseConnections.map(async (conn) => {
-        const space = await readSharedSpace(conn, data);
+        const space = await readSharedSpace(conn, fresh);
+        if (!space) return null;
         const expenses = space.expenses
           .filter((e) => e.expenseDate.slice(0, 10) === date)
           .map((e) => enrichSharedExpense(data, e, space, conn));
@@ -2122,12 +2139,15 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
           total: total.toFixed(2),
         };
       }),
-    );
+    )
+    ).filter((g): g is NonNullable<typeof g> => g !== null);
 
-    const noteConnections = getActiveSharedConnections(data, 'notes');
-    const noteGroups = await Promise.all(
+    const noteConnections = getActiveSharedConnections(fresh, 'notes');
+    const noteGroups = (
+      await Promise.all(
       noteConnections.map(async (conn) => {
-        const space = await readSharedSpace(conn, data);
+        const space = await readSharedSpace(conn, fresh);
+        if (!space) return null;
         const notes = space.notes
           .filter((n) => n.noteDate.slice(0, 10) === date)
           .map((n) => {
@@ -2145,17 +2165,22 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
           notes,
         };
       }),
-    );
+    )
+    ).filter((g): g is NonNullable<typeof g> => g !== null);
 
     return { columns, expenseGroups, noteGroups } as T;
   }
 
   if (route === '/shared/expenses' && method === 'GET') {
     await refreshConnectionsFromCloud(data);
+    await pruneBrokenConnections(data);
+    const fresh = loadData();
     const date = q.get('date') || todayISO();
-    const groups = await Promise.all(
-      getActiveSharedConnections(data, 'expenses').map(async (conn) => {
-        const space = await readSharedSpace(conn, data);
+    const groups = (
+      await Promise.all(
+      getActiveSharedConnections(fresh, 'expenses').map(async (conn) => {
+        const space = await readSharedSpace(conn, fresh);
+        if (!space) return null;
         const expenses = space.expenses
           .filter((e) => e.expenseDate.slice(0, 10) === date)
           .map((e) => enrichSharedExpense(data, e, space, conn));
@@ -2167,14 +2192,19 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
           total: total.toFixed(2),
         };
       }),
-    );
+    )
+    ).filter((g): g is NonNullable<typeof g> => g !== null);
     return { groups } as T;
   }
 
   if (route === '/shared/shopping' && method === 'GET') {
-    const groups = await Promise.all(
-      getActiveSharedConnections(data, 'shopping').map(async (conn) => {
-        const space = await readSharedSpace(conn, data);
+    await pruneBrokenConnections(data);
+    const fresh = loadData();
+    const groups = (
+      await Promise.all(
+      getActiveSharedConnections(fresh, 'shopping').map(async (conn) => {
+        const space = await readSharedSpace(conn, fresh);
+        if (!space) return null;
         const items = [...space.shoppingItems].sort((a, b) => {
           if (a.checked !== b.checked) return a.checked ? 1 : -1;
           return b.createdAt.localeCompare(a.createdAt);
@@ -2186,47 +2216,62 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
           pending: items.filter((i) => !i.checked).length,
         };
       }),
-    );
+    )
+    ).filter((g): g is NonNullable<typeof g> => g !== null);
     return { groups } as T;
   }
 
   if (route === '/shared/reminders' && method === 'GET') {
-    const groups = await Promise.all(
-      getActiveSharedConnections(data, 'reminders').map(async (conn) => {
-        const space = await readSharedSpace(conn, data);
+    await pruneBrokenConnections(data);
+    const fresh = loadData();
+    const groups = (
+      await Promise.all(
+      getActiveSharedConnections(fresh, 'reminders').map(async (conn) => {
+        const space = await readSharedSpace(conn, fresh);
+        if (!space) return null;
         return {
           spaceId: conn.sharedSpaceId!,
           partnerName: partnerLabel(conn),
           reminders: space.reminders,
         };
       }),
-    );
+    )
+    ).filter((g): g is NonNullable<typeof g> => g !== null);
     return { groups } as T;
   }
 
   if (route === '/shared/vision' && method === 'GET') {
+    await pruneBrokenConnections(data);
+    const fresh = loadData();
     const achieved = q.get('achieved');
-    const groups = await Promise.all(
-      getActiveSharedConnections(data, 'vision').map(async (conn) => {
-        const space = await readSharedSpace(conn, data);
+    const groups = (
+      await Promise.all(
+      getActiveSharedConnections(fresh, 'vision').map(async (conn) => {
+        const space = await readSharedSpace(conn, fresh);
+        if (!space) return null;
         let items = space.visionBoard;
         if (achieved === 'true') items = items.filter((i) => i.achieved);
         if (achieved === 'false') items = items.filter((i) => !i.achieved);
         return {
           spaceId: conn.sharedSpaceId!,
           partnerName: partnerLabel(conn),
-          items: items.map((item) => enrichVision(data, item)),
+          items: items.map((item) => enrichVision(fresh, item)),
         };
       }),
-    );
+    )
+    ).filter((g): g is NonNullable<typeof g> => g !== null);
     return { groups } as T;
   }
 
   if (route === '/shared/splits/balances' && method === 'GET') {
-    const groups = await Promise.all(
-      getActiveSharedConnections(data, 'splits').map(async (conn) => {
-        const space = await readSharedSpace(conn, data);
-        const balances = splitBalancesForSharedSpace(data, space, conn);
+    await pruneBrokenConnections(data);
+    const fresh = loadData();
+    const groups = (
+      await Promise.all(
+      getActiveSharedConnections(fresh, 'splits').map(async (conn) => {
+        const space = await readSharedSpace(conn, fresh);
+        if (!space) return null;
+        const balances = splitBalancesForSharedSpace(fresh, space, conn);
         return {
           spaceId: conn.sharedSpaceId!,
           partnerName: partnerLabel(conn),
@@ -2234,15 +2279,20 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
           ...balances,
         };
       }),
-    );
+    )
+    ).filter((g): g is NonNullable<typeof g> => g !== null);
     return { groups } as T;
   }
 
   if (route === '/shared/routines/today' && method === 'GET') {
+    await pruneBrokenConnections(data);
+    const fresh = loadData();
     const date = q.get('date') || todayISO();
-    const groups = await Promise.all(
-      getActiveSharedConnections(data, 'routines').map(async (conn) => {
-        const space = await readSharedSpace(conn, data);
+    const groups = (
+      await Promise.all(
+      getActiveSharedConnections(fresh, 'routines').map(async (conn) => {
+        const space = await readSharedSpace(conn, fresh);
+        if (!space) return null;
         return {
           spaceId: conn.sharedSpaceId!,
           partnerName: partnerLabel(conn),
@@ -2250,7 +2300,8 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
           routines: sharedRoutinesForDay(space, date),
         };
       }),
-    );
+    )
+    ).filter((g): g is NonNullable<typeof g> => g !== null);
     return { groups } as T;
   }
 
@@ -2260,7 +2311,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     const settlementId = sharedSplitSettlementMatch[2];
     const conn = getSharedConnection(data, spaceId);
     assertSharedFeature(conn, 'splits');
-    const space = await readSharedSpace(conn, data);
+    const space = await requireSharedSpace(conn, data);
 
     if (method === 'POST' && !settlementId) {
       const b = body as { fromUserId: string; toUserId: string; amount: number; note?: string; settledAt?: string };
@@ -2298,7 +2349,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     const routineId = sharedRoutineToggleMatch[2];
     const conn = getSharedConnection(data, spaceId);
     assertSharedFeature(conn, 'routines');
-    const space = await readSharedSpace(conn, data);
+    const space = await requireSharedSpace(conn, data);
     ensureSharedRoutines(space);
     const routine = space.routines.find((r) => r.id === routineId);
     if (!routine) throw new ApiError(404, 'Routine not found');
@@ -2331,7 +2382,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       if (amount == null || Number.isNaN(amount) || amount <= 0) {
         throw new ApiError(400, 'Valid amount is required');
       }
-      const space = await readSharedSpace(conn, data);
+      const space = await requireSharedSpace(conn, data);
       const exp: StoredExpense = {
         id: uid(),
         amount: amount.toFixed(2),
@@ -2352,7 +2403,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     }
 
     if (expenseId && method === 'DELETE') {
-      const space = await readSharedSpace(conn, data);
+      const space = await requireSharedSpace(conn, data);
       const idx = space.expenses.findIndex((e) => e.id === expenseId);
       if (idx < 0) throw new ApiError(404, 'Expense not found');
       space.expenses.splice(idx, 1);
@@ -2371,7 +2422,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     if (method === 'POST' && !itemId) {
       const b = body as { name?: string; quantity?: string; category?: ShoppingItem['category'] };
       if (!b.name?.trim()) throw new ApiError(400, 'Item name is required');
-      const space = await readSharedSpace(conn, data);
+      const space = await requireSharedSpace(conn, data);
       const item: ShoppingItem = {
         id: uid(),
         name: b.name.trim(),
@@ -2387,7 +2438,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     }
 
     if (itemId && method === 'PATCH') {
-      const space = await readSharedSpace(conn, data);
+      const space = await requireSharedSpace(conn, data);
       const idx = space.shoppingItems.findIndex((i) => i.id === itemId);
       if (idx < 0) throw new ApiError(404, 'Item not found');
       space.shoppingItems[idx].checked = !space.shoppingItems[idx].checked;
@@ -2396,7 +2447,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     }
 
     if (itemId && method === 'DELETE') {
-      const space = await readSharedSpace(conn, data);
+      const space = await requireSharedSpace(conn, data);
       const idx = space.shoppingItems.findIndex((i) => i.id === itemId);
       if (idx < 0) throw new ApiError(404, 'Item not found');
       space.shoppingItems.splice(idx, 1);
@@ -2411,7 +2462,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     assertSharedFeature(conn, 'notes');
     const b = body as { content?: string; area?: DailyNote['area']; noteDate?: string };
     if (!b.content?.trim()) throw new ApiError(400, 'Note content is required');
-    const space = await readSharedSpace(conn, data);
+    const space = await requireSharedSpace(conn, data);
     const note = {
       id: uid(),
       content: b.content.trim(),
@@ -2442,7 +2493,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       const b = body as { title?: string; dueDate?: string; repeat?: ReminderRepeat; notes?: string };
       if (!b.title?.trim()) throw new ApiError(400, 'Title is required');
       if (!b.dueDate) throw new ApiError(400, 'Due date is required');
-      const space = await readSharedSpace(conn, data);
+      const space = await requireSharedSpace(conn, data);
       const reminder: Reminder = {
         id: uid(),
         title: b.title.trim(),
@@ -2457,7 +2508,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     }
 
     if (reminderId && method === 'DELETE') {
-      const space = await readSharedSpace(conn, data);
+      const space = await requireSharedSpace(conn, data);
       const idx = space.reminders.findIndex((r) => r.id === reminderId);
       if (idx < 0) throw new ApiError(404, 'Reminder not found');
       space.reminders.splice(idx, 1);
@@ -2477,7 +2528,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     if (method === 'POST' && !itemId) {
       const b = body as Partial<VisionBoardItem>;
       if (!b.title?.trim()) throw new ApiError(400, 'Title is required');
-      const space = await readSharedSpace(conn, data);
+      const space = await requireSharedSpace(conn, data);
       const item: VisionBoardItem = {
         id: uid(),
         title: b.title.trim(),
@@ -2496,7 +2547,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     }
 
     if (itemId && isAchieve && method === 'PATCH') {
-      const space = await readSharedSpace(conn, data);
+      const space = await requireSharedSpace(conn, data);
       const idx = space.visionBoard.findIndex((i) => i.id === itemId);
       if (idx < 0) throw new ApiError(404, 'Vision card not found');
       space.visionBoard[idx].achieved = !space.visionBoard[idx].achieved;
@@ -2505,7 +2556,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     }
 
     if (itemId && method === 'DELETE') {
-      const space = await readSharedSpace(conn, data);
+      const space = await requireSharedSpace(conn, data);
       const idx = space.visionBoard.findIndex((i) => i.id === itemId);
       if (idx < 0) throw new ApiError(404, 'Vision card not found');
       space.visionBoard.splice(idx, 1);
@@ -2525,7 +2576,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     if (method === 'POST' && !taskId) {
       const b = body as { title?: string; area?: Task['area']; dueDate?: string };
       if (!b.title?.trim()) throw new ApiError(400, 'Title is required');
-      const space = await readSharedSpace(conn, data);
+      const space = await requireSharedSpace(conn, data);
       const task: Task = {
         id: uid(),
         title: b.title.trim(),
@@ -2543,7 +2594,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     }
 
     if (taskId && isToggle && method === 'PATCH') {
-      const space = await readSharedSpace(conn, data);
+      const space = await requireSharedSpace(conn, data);
       const idx = space.tasks.findIndex((t) => t.id === taskId);
       if (idx < 0) throw new ApiError(404, 'Task not found');
       const task = space.tasks[idx];
@@ -2559,7 +2610,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     }
 
     if (taskId && method === 'DELETE') {
-      const space = await readSharedSpace(conn, data);
+      const space = await requireSharedSpace(conn, data);
       const idx = space.tasks.findIndex((t) => t.id === taskId);
       if (idx < 0) throw new ApiError(404, 'Task not found');
       space.tasks.splice(idx, 1);

@@ -1,4 +1,5 @@
-import { loadGitHubConfig, isGitHubConfigured, putGitHubJsonAtPath, type JsonMergeFn } from './githubSync';
+import { loadGitHubConfig, isGitHubConfigured, putGitHubJsonAtPath, type JsonMergeFn, mergeAppData } from './githubSync';
+import type { AppData } from './storage';
 import { parseJsonText, uid } from './storage';
 import type {
   Task,
@@ -270,8 +271,30 @@ export async function pushInbox(accountId: string, inbox: AccountInbox): Promise
 }
 
 export async function fetchSharedSpace(spaceId: string): Promise<SharedSpaceData | null> {
+  if (missingSharedSpaceIds.has(spaceId)) return null;
   const remote = await readGitHubJson<SharedSpaceData>(sharedSpacePath(spaceId));
-  return remote?.data ? normalizeSharedSpace(remote.data) : null;
+  if (!remote) {
+    missingSharedSpaceIds.add(spaceId);
+    return null;
+  }
+  return normalizeSharedSpace(remote.data);
+}
+
+const missingSharedSpaceIds = new Set<string>();
+
+/** Drop active connections whose shared file was deleted (e.g. after cloud reset). */
+export async function pruneStaleConnections(connections: Connection[] = []): Promise<Connection[]> {
+  const results = await Promise.all(
+    connections.map(async (c) => {
+      if (c.status !== 'active' || !c.sharedSpaceId) return c;
+      if (missingSharedSpaceIds.has(c.sharedSpaceId)) return null;
+      const remote = await readGitHubJson<SharedSpaceData>(sharedSpacePath(c.sharedSpaceId));
+      if (remote) return c;
+      missingSharedSpaceIds.add(c.sharedSpaceId);
+      return null;
+    }),
+  );
+  return results.filter((c): c is Connection => c !== null);
 }
 
 export async function saveSharedSpace(space: SharedSpaceData): Promise<void> {
@@ -298,11 +321,15 @@ export async function updatePartnerConnection(
   } else {
     connections.push(connection);
   }
-  await writeGitHubJson(
+  const stamped = { ...remote.data, connections, updatedAt: new Date().toISOString() };
+  await putGitHubJsonAtPath(
     path,
-    { ...remote.data, connections, updatedAt: new Date().toISOString() },
-    remote.sha,
+    stamped,
     'Rozka connection update',
+    (local, remotePayload) => {
+      const merged = mergeAppData(local as AppData, remotePayload as AppData);
+      return { ...merged, connections, updatedAt: stamped.updatedAt };
+    },
   );
 }
 

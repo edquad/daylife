@@ -1,7 +1,8 @@
 import type { AppData } from './storage';
 import { loadData, saveDataLocal, normalizeAppData, parseJsonText, sanitizeJsonText, jsonNeedsSanitizing } from './storage';
+import type { Routine, RoutineDayLog, User } from './api';
 import { getActiveAccountId, accountCloudPath } from './accounts';
-import { mergeConnections } from './sharing';
+import { mergeConnections, pruneStaleConnections } from './sharing';
 
 const CONFIG_KEY = 'daylife_github_sync';
 const MAX_CONFLICT_RETRIES = 8;
@@ -255,17 +256,19 @@ export async function putGitHubJsonAtPath<T = unknown>(
 async function pushToGitHubOnce(config: GitHubSyncConfig, data: AppData): Promise<string> {
   const path = config.path.trim() || 'data/daylife.json';
   const stamped: AppData = { ...data, updatedAt: data.updatedAt || new Date().toISOString() };
-  const remote = await fetchFromGitHub(config);
-  const merged = remote ? mergeAppData(stamped, remote.data) : stamped;
-  saveDataLocal(merged);
 
-  return putGitHubContents(
+  const sha = await putGitHubContents(
     config,
     path,
-    merged,
-    `Rozka sync ${merged.updatedAt}`,
+    stamped,
+    `Rozka sync ${stamped.updatedAt}`,
     mergeAppData,
   );
+
+  const remote = await fetchFromGitHub(config);
+  if (remote) saveDataLocal(normalizeAppData(remote.data));
+
+  return sha;
 }
 
 export async function pushToGitHub(config: GitHubSyncConfig, data: AppData): Promise<string> {
@@ -278,13 +281,57 @@ export function pickNewerData(local: AppData, remote: AppData): 'local' | 'remot
   return remoteTime > localTime ? 'remote' : 'local';
 }
 
+function mergeById<T extends { id: string }>(local: T[], remote: T[]): T[] {
+  const map = new Map<string, T>();
+  for (const item of remote) map.set(item.id, item);
+  for (const item of local) map.set(item.id, item);
+  return Array.from(map.values());
+}
+
+function mergeUsers(local: User[], remote: User[]): User[] {
+  const map = new Map<string, User>();
+  for (const user of remote) map.set(user.id, user);
+  for (const user of local) map.set(user.id, { ...map.get(user.id), ...user });
+  return Array.from(map.values());
+}
+
+function mergeRoutineLogs(local: RoutineDayLog[], remote: RoutineDayLog[]): RoutineDayLog[] {
+  const map = new Map<string, RoutineDayLog>();
+  for (const log of remote) map.set(`${log.routineId}:${log.date}`, log);
+  for (const log of local) map.set(`${log.routineId}:${log.date}`, log);
+  return Array.from(map.values());
+}
+
+function mergeRoutines(local: Routine[], remote: Routine[]): Routine[] {
+  const map = new Map<string, Routine>();
+  for (const routine of remote) map.set(routine.id, routine);
+  for (const routine of local) {
+    const prev = map.get(routine.id);
+    map.set(routine.id, {
+      ...routine,
+      items: prev ? mergeById(routine.items, prev.items) : routine.items,
+    });
+  }
+  return Array.from(map.values());
+}
+
 export function mergeAppData(local: AppData, remote: AppData): AppData {
-  const winner = pickNewerData(local, remote);
-  const base = winner === 'remote' ? remote : local;
-  const other = winner === 'remote' ? local : remote;
   return {
-    ...base,
-    connections: mergeConnections(other.connections, base.connections),
+    users: mergeUsers(local.users ?? [], remote.users ?? []),
+    tasks: mergeById(local.tasks ?? [], remote.tasks ?? []),
+    expenses: mergeById(local.expenses ?? [], remote.expenses ?? []),
+    notes: mergeById(local.notes ?? [], remote.notes ?? []),
+    categories: (local.categories?.length ? local.categories : remote.categories) ?? [],
+    shoppingItems: mergeById(local.shoppingItems ?? [], remote.shoppingItems ?? []),
+    routines: mergeRoutines(local.routines ?? [], remote.routines ?? []),
+    routineLogs: mergeRoutineLogs(local.routineLogs ?? [], remote.routineLogs ?? []),
+    reminders: mergeById(local.reminders ?? [], remote.reminders ?? []),
+    visionBoard: mergeById(local.visionBoard ?? [], remote.visionBoard ?? []),
+    settlements: mergeById(local.settlements ?? [], remote.settlements ?? []),
+    setupComplete: local.setupComplete || remote.setupComplete,
+    householdType: local.householdType || remote.householdType,
+    householdName: local.householdName || remote.householdName,
+    connections: mergeConnections(remote.connections, local.connections),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -316,7 +363,12 @@ export async function pullAndMerge(config: GitHubSyncConfig): Promise<'local' | 
 
 export async function syncNow(config: GitHubSyncConfig): Promise<void> {
   return runCloudWrite(async () => {
-    const local = loadData();
+    let local = loadData();
+    const pruned = await pruneStaleConnections(local.connections || []);
+    if (pruned.length !== (local.connections?.length ?? 0)) {
+      local = { ...local, connections: pruned };
+      saveDataLocal(local);
+    }
     const sha = await pushToGitHubOnce(config, local);
     saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
   });
