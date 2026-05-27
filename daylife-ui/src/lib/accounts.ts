@@ -85,6 +85,22 @@ export async function listRegisteredUsernames(): Promise<string[]> {
   return Object.keys(registry.accounts).sort((a, b) => a.localeCompare(b));
 }
 
+/** Search usernames — use instead of loading the full registry in the UI. */
+export async function searchRegisteredUsernames(query: string, limit = 8): Promise<string[]> {
+  const key = normalizeUsername(query);
+  if (key.length < 2) return [];
+  const { registry } = await fetchRegistry();
+  return Object.keys(registry.accounts)
+    .filter((u) => u.includes(key))
+    .sort((a, b) => {
+      const aStarts = a.startsWith(key) ? 0 : 1;
+      const bStarts = b.startsWith(key) ? 0 : 1;
+      if (aStarts !== bStarts) return aStarts - bStarts;
+      return a.localeCompare(b);
+    })
+    .slice(0, Math.min(limit, 20));
+}
+
 export async function createAccount(username: string): Promise<string> {
   const key = normalizeUsername(username);
   const err = validateUsername(key);

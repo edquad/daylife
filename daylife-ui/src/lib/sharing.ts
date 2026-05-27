@@ -110,6 +110,8 @@ export interface Connection {
   sharedSpaceId?: string;
   initiatedByMe: boolean;
   createdAt: string;
+  /** Optional tag to group many connections — e.g. Family, Work */
+  groupLabel?: string;
 }
 
 export interface SharedNote {

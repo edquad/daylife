@@ -27,7 +27,7 @@ import {
 import type { ItemVisibility } from './privacy';
 import { defaultVisibility, isVisibleToViewer } from './privacy';
 import { hashPin, verifyPin, validatePinFormat, generateRecoveryCode, hashRecoveryCode, verifyRecoveryCode, validateRecoveryCodeFormat } from './pin';
-import { normalizeUsername, validateUsername, resolveAccountId, getActiveAccountId, listRegisteredUsernames } from './accounts';
+import { normalizeUsername, validateUsername, resolveAccountId, getActiveAccountId, listRegisteredUsernames, searchRegisteredUsernames } from './accounts';
 import {
   type Connection,
   type ShareFeature,
@@ -1906,6 +1906,21 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     return { usernames } as T;
   }
 
+  if (route === '/accounts/usernames/search' && method === 'GET') {
+    const me = data.users.find((u) => u.id === sessionId);
+    const myUsername = me?.username ? normalizeUsername(me.username) : '';
+    const connected = new Set(
+      (data.connections || [])
+        .filter((c) => c.status === 'active' || c.status === 'pending_sent' || c.status === 'pending_received')
+        .map((c) => normalizeUsername(c.partnerUsername)),
+    );
+    const searchQ = q.get('q') || '';
+    const limit = Math.min(parseInt(q.get('limit') || '8', 10) || 8, 20);
+    const matches = await searchRegisteredUsernames(searchQ, limit);
+    const usernames = matches.filter((u) => u !== myUsername && !connected.has(u));
+    return { usernames } as T;
+  }
+
   if (route === '/connections' && method === 'GET') {
     await refreshConnectionsFromCloud(data);
     return (data.connections || []) as T;
@@ -1939,7 +1954,11 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     if (!accountId) throw new ApiError(400, 'Cloud account required');
     const me = data.users.find((u) => u.id === sessionId);
     if (!me?.username) throw new ApiError(400, 'Your profile needs a username');
-    const { username, features } = body as { username?: string; features?: ShareFeature[] };
+    const { username, features, groupLabel } = body as {
+      username?: string;
+      features?: ShareFeature[];
+      groupLabel?: string;
+    };
     const partnerUsername = normalizeUsername(username || '');
     if (!partnerUsername) throw new ApiError(400, 'Enter a username');
     const partnerAccountId = await resolveAccountId(partnerUsername);
@@ -1979,10 +1998,23 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       status: 'pending_sent',
       initiatedByMe: true,
       createdAt,
+      groupLabel: groupLabel?.trim() || undefined,
     };
     data.connections.push(connection);
     saveData(data);
     return connection as T;
+  }
+
+  const connectionLabelMatch = route.match(/^\/connections\/([^/]+)\/label$/);
+  if (connectionLabelMatch && method === 'PUT') {
+    const connId = connectionLabelMatch[1];
+    const { groupLabel } = body as { groupLabel?: string };
+    if (!data.connections) data.connections = [];
+    const conn = data.connections.find((c) => c.id === connId);
+    if (!conn) throw new ApiError(404, 'Connection not found');
+    conn.groupLabel = groupLabel?.trim() || undefined;
+    saveData(data);
+    return conn as T;
   }
 
   const connectionActionMatch = route.match(/^\/connections\/([^/]+)\/(accept|decline)$/);
