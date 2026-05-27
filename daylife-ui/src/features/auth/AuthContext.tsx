@@ -1,10 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api, User } from '../../lib/api';
-import { loadData, resolveHouseholdType, beginFreshSignup, endFreshSignup, clearAccountData } from '../../lib/storage';
+import { loadData, resolveHouseholdType, beginFreshSignup, endFreshSignup, clearAccountData, beginAuthFlow, endAuthFlow } from '../../lib/storage';
 import { clearUnlock, markUserUnlocked } from '../../lib/pin';
 import { queryClient } from '../../lib/queryClient';
 import { createAccount, resolveAccountId, setActiveAccountId, getActiveAccountId, normalizeUsername } from '../../lib/accounts';
-import { loadGitHubConfig, saveGitHubConfig, syncNow, flushCloudSyncNow } from '../../lib/githubSync';
+import { loadGitHubConfig, saveGitHubConfig, syncNow, flushCloudSyncNow, pullAndMerge } from '../../lib/githubSync';
 
 export interface SignupInput {
   username: string;
@@ -74,38 +74,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearUnlock();
     api.setToken(null);
     setUser(null);
+    beginAuthFlow();
     beginFreshSignup();
 
-    const accountId = await createAccount(username);
-    setActiveAccountId(accountId);
-    clearAccountData();
-    saveGitHubConfig({ lastSha: undefined, lastSyncedAt: undefined });
-
-    const res = await api.post<{ token: string; user: User; recoveryCode?: string }>('/auth/signup', {
-      username: normalizeUsername(username),
-      name: name.trim(),
-      pin: pin?.trim() || undefined,
-    });
-    api.setToken(res.token);
-    markUserUnlocked(res.user.id);
-    setUser(res.user);
-    endFreshSignup();
-    refreshFromStorage();
-
     try {
-      await syncNow(loadGitHubConfig());
-    } catch {
-      /* local account still works */
-    }
+      const accountId = await createAccount(username);
+      setActiveAccountId(accountId);
+      clearAccountData();
+      saveGitHubConfig({ lastSha: undefined, lastSyncedAt: undefined });
 
-    try {
-      await api.post('/connections/sync-inbox');
-    } catch {
-      /* inbox optional */
+      const res = await api.post<{ token: string; user: User; recoveryCode?: string }>('/auth/signup', {
+        username: normalizeUsername(username),
+        name: name.trim(),
+        pin: pin?.trim() || undefined,
+      });
+      api.setToken(res.token);
+      markUserUnlocked(res.user.id);
+      setUser(res.user);
+      endFreshSignup();
+      refreshFromStorage();
+
+      try {
+        await syncNow(loadGitHubConfig());
+      } catch {
+        /* local account still works */
+      }
+
+      try {
+        await api.post('/connections/sync-inbox');
+      } catch {
+        /* inbox optional */
+      }
+      await queryClient.invalidateQueries();
+      if (res.recoveryCode) setPendingRecoveryCode(res.recoveryCode);
+      return res.recoveryCode;
+    } finally {
+      endAuthFlow();
     }
-    await queryClient.invalidateQueries();
-    if (res.recoveryCode) setPendingRecoveryCode(res.recoveryCode);
-    return res.recoveryCode;
   };
 
   const acknowledgeRecoveryCode = () => setPendingRecoveryCode(null);
@@ -114,84 +119,100 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearUnlock();
     api.setToken(null);
     setUser(null);
-
-    const accountId = await resolveAccountId(username);
-    if (!accountId) {
-      throw new Error('No account with that username.');
-    }
-
-    setActiveAccountId(accountId);
-    clearAccountData();
-    saveGitHubConfig({ lastSha: undefined, lastSyncedAt: undefined });
+    beginAuthFlow();
 
     try {
-      await syncNow(loadGitHubConfig());
-    } catch {
-      throw new Error('Could not load your account from cloud. Check connection and try again.');
+      const accountId = await resolveAccountId(username);
+      if (!accountId) {
+        throw new Error('No account with that username.');
+      }
+
+      setActiveAccountId(accountId);
+      clearAccountData();
+      saveGitHubConfig({ lastSha: undefined, lastSyncedAt: undefined });
+
+      try {
+        await pullAndMerge(loadGitHubConfig());
+      } catch {
+        throw new Error('Could not load your account from cloud. Check connection and try again.');
+      }
+
+      await api.post('/auth/forgot-pin', {
+        username: normalizeUsername(username),
+        recoveryCode,
+        newPin,
+      });
+
+      await flushCloudSyncNow();
+
+      const res = await api.post<{ token: string; user: User }>('/auth/login', {
+        username: normalizeUsername(username),
+        pin: newPin,
+      });
+      api.setToken(res.token);
+      markUserUnlocked(res.user.id);
+      setUser(res.user);
+      refreshFromStorage();
+
+      try {
+        await api.post('/connections/sync-inbox');
+      } catch {
+        /* inbox sync is best-effort */
+      }
+
+      await queryClient.invalidateQueries();
+    } finally {
+      endAuthFlow();
     }
-
-    await api.post('/auth/forgot-pin', {
-      username: normalizeUsername(username),
-      recoveryCode,
-      newPin,
-    });
-
-    await flushCloudSyncNow();
-
-    const res = await api.post<{ token: string; user: User }>('/auth/login', {
-      username: normalizeUsername(username),
-      pin: newPin,
-    });
-    api.setToken(res.token);
-    markUserUnlocked(res.user.id);
-    setUser(res.user);
-    refreshFromStorage();
-
-    try {
-      await api.post('/connections/sync-inbox');
-    } catch {
-      /* inbox sync is best-effort */
-    }
-
-    await queryClient.invalidateQueries();
   };
 
   const login = async ({ username, pin }: LoginInput) => {
     clearUnlock();
     api.setToken(null);
     setUser(null);
-
-    const accountId = await resolveAccountId(username);
-    if (!accountId) {
-      throw new Error('No account with that username. Sign up first.');
-    }
-
-    setActiveAccountId(accountId);
-    clearAccountData();
-    saveGitHubConfig({ lastSha: undefined, lastSyncedAt: undefined });
+    beginAuthFlow();
 
     try {
-      await syncNow(loadGitHubConfig());
-    } catch {
-      throw new Error('Could not load your data from cloud. Check connection and try again.');
+      const accountId = await resolveAccountId(username);
+      if (!accountId) {
+        throw new Error('No account with that username. Sign up first.');
+      }
+
+      setActiveAccountId(accountId);
+      clearAccountData();
+      saveGitHubConfig({ lastSha: undefined, lastSyncedAt: undefined });
+
+      try {
+        await pullAndMerge(loadGitHubConfig());
+      } catch {
+        throw new Error('Could not load your data from cloud. Check connection and try again.');
+      }
+
+      const res = await api.post<{ token: string; user: User }>('/auth/login', {
+        username: normalizeUsername(username),
+        pin: pin?.trim() || undefined,
+      });
+      api.setToken(res.token);
+      markUserUnlocked(res.user.id);
+      setUser(res.user);
+      refreshFromStorage();
+
+      try {
+        await flushCloudSyncNow();
+      } catch {
+        /* local login still works */
+      }
+
+      try {
+        await api.post('/connections/sync-inbox');
+      } catch {
+        /* inbox sync is best-effort */
+      }
+
+      await queryClient.invalidateQueries();
+    } finally {
+      endAuthFlow();
     }
-
-    const res = await api.post<{ token: string; user: User }>('/auth/login', {
-      username: normalizeUsername(username),
-      pin: pin?.trim() || undefined,
-    });
-    api.setToken(res.token);
-    markUserUnlocked(res.user.id);
-    setUser(res.user);
-    refreshFromStorage();
-
-    try {
-      await api.post('/connections/sync-inbox');
-    } catch {
-      /* inbox sync is best-effort */
-    }
-
-    await queryClient.invalidateQueries();
   };
 
   const logout = () => {

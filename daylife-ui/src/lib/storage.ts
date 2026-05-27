@@ -17,6 +17,7 @@ import type { Connection } from './sharing';
 const STORAGE_KEY = 'daylife_data';
 const SESSION_KEY = 'daylife_session';
 const FRESH_SIGNUP_KEY = 'daylife_fresh_signup';
+const AUTH_FLOW_KEY = 'daylife_auth_flow';
 const LEGACY_STORAGE_KEY = 'daylife_data';
 
 function dataStorageKey(): string {
@@ -180,6 +181,20 @@ export function isFreshSignupInProgress(): boolean {
 
 export function endFreshSignup(): void {
   sessionStorage.removeItem(FRESH_SIGNUP_KEY);
+}
+
+/** True while login, signup, or PIN reset is running — blocks duplicate cloud sync. */
+export function beginAuthFlow(): void {
+  sessionStorage.setItem(AUTH_FLOW_KEY, '1');
+}
+
+export function endAuthFlow(): void {
+  sessionStorage.removeItem(AUTH_FLOW_KEY);
+  window.dispatchEvent(new CustomEvent('daylife-auth-flow-ended'));
+}
+
+export function isAuthFlowInProgress(): boolean {
+  return sessionStorage.getItem(AUTH_FLOW_KEY) === '1';
 }
 
 export function saveData(data: AppData): void {

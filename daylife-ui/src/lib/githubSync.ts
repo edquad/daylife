@@ -1,5 +1,14 @@
 import type { AppData } from './storage';
-import { loadData, saveDataLocal, normalizeAppData, parseJsonText, sanitizeJsonText, jsonNeedsSanitizing } from './storage';
+import {
+  loadData,
+  saveDataLocal,
+  normalizeAppData,
+  parseJsonText,
+  sanitizeJsonText,
+  jsonNeedsSanitizing,
+  isAuthFlowInProgress,
+  isFreshSignupInProgress,
+} from './storage';
 import type { Routine, RoutineDayLog, User } from './api';
 import { getActiveAccountId, accountCloudPath } from './accounts';
 import { mergeConnections, pruneStaleConnections } from './sharing';
@@ -380,6 +389,7 @@ let pushPending = false;
 
 export function scheduleGitHubPush(config: GitHubSyncConfig): void {
   if (!isGitHubConfigured(config)) return;
+  if (isAuthFlowInProgress() || isFreshSignupInProgress()) return;
   if (pushTimer) clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
     if (pushInFlight) {

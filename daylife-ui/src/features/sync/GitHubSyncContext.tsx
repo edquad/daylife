@@ -9,7 +9,7 @@ import {
   syncNow,
   scheduleGitHubPush,
 } from '../../lib/githubSync';
-import { registerDataSaveHook, isFreshSignupInProgress } from '../../lib/storage';
+import { registerDataSaveHook, isFreshSignupInProgress, isAuthFlowInProgress } from '../../lib/storage';
 import { getActiveAccountId } from '../../lib/accounts';
 import { api } from '../../lib/api';
 
@@ -46,7 +46,7 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   const pullFromGitHub = useCallback(async () => {
-    if (isFreshSignupInProgress()) return;
+    if (isFreshSignupInProgress() || isAuthFlowInProgress()) return;
     const cfg = loadGitHubConfig();
     if (!isGitHubConfigured(cfg)) throw new Error('Cloud sync not available');
     setStatus('syncing');
@@ -109,7 +109,11 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onAccountChange = () => setAccountRevision((r) => r + 1);
     window.addEventListener('daylife-account-changed', onAccountChange);
-    return () => window.removeEventListener('daylife-account-changed', onAccountChange);
+    window.addEventListener('daylife-auth-flow-ended', onAccountChange);
+    return () => {
+      window.removeEventListener('daylife-account-changed', onAccountChange);
+      window.removeEventListener('daylife-auth-flow-ended', onAccountChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -128,16 +132,16 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
     }
 
     let cancelled = false;
-    if (isFreshSignupInProgress()) {
+    if (isFreshSignupInProgress() || isAuthFlowInProgress()) {
       setStatus('idle');
-      setStatusMessage('Finish sign up first');
+      setStatusMessage('Signing in…');
       return;
     }
     (async () => {
       setStatus('syncing');
       setStatusMessage('Loading your data…');
       try {
-        await syncNow(cfg);
+        await pullAndMerge(cfg);
         if (!cancelled) {
           if (api.getToken()) {
             try {
@@ -149,7 +153,7 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
           invalidateApp();
           setConfig(loadGitHubConfig());
           setStatus('synced');
-          setStatusMessage('Saved automatically');
+          setStatusMessage('Everything synced');
         }
       } catch (err: any) {
         if (!cancelled) {
