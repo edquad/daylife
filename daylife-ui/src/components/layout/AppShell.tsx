@@ -12,6 +12,7 @@ import {
   Menu, X, Plus, LogOut, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star, HandCoins, Users, Mic,
 } from 'lucide-react';
 import { VoiceAssistantSheet, VoiceMicButton } from '../VoiceAssistant';
+import { RecoveryCodeModal } from '../RecoveryCodeModal';
 
 const baseNavItems = [
   { path: '/', label: 'Today', icon: LayoutDashboard },
@@ -34,7 +35,7 @@ const mobileBottomNav = [
 ];
 
 export function AppShell() {
-  const { user, logout } = useAuth();
+  const { user, logout, pendingRecoveryCode, acknowledgeRecoveryCode } = useAuth();
   const { status, statusMessage, cloudReady } = useGitHubSync();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -62,6 +63,9 @@ export function AppShell() {
 
   return (
     <div className="min-h-dvh flex">
+      {pendingRecoveryCode && (
+        <RecoveryCodeModal code={pendingRecoveryCode} onClose={acknowledgeRecoveryCode} />
+      )}
       <aside className="hidden lg:flex flex-col w-64 border-r bg-white">
         <div className="p-4 border-b">
           <div className="flex items-center gap-2">

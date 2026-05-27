@@ -26,7 +26,7 @@ import {
 } from './splits';
 import type { ItemVisibility } from './privacy';
 import { defaultVisibility, isVisibleToViewer } from './privacy';
-import { hashPin, verifyPin, validatePinFormat } from './pin';
+import { hashPin, verifyPin, validatePinFormat, generateRecoveryCode, hashRecoveryCode, verifyRecoveryCode, validateRecoveryCodeFormat } from './pin';
 import { normalizeUsername, validateUsername, resolveAccountId, getActiveAccountId, listRegisteredUsernames } from './accounts';
 import {
   type Connection,
@@ -70,7 +70,9 @@ export interface User {
   role: string;
   color: string;
   hasPin?: boolean;
+  hasRecoveryCode?: boolean;
   pinHash?: string;
+  recoveryHash?: string;
 }
 
 export interface Task {
@@ -338,6 +340,7 @@ function publicUser(u: User): User {
     role: u.role,
     color: u.color,
     hasPin: !!u.pinHash,
+    hasRecoveryCode: !!u.recoveryHash,
   };
 }
 
@@ -1167,13 +1170,15 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
         if (!validatePinFormat(payload.pin)) throw new ApiError(400, 'PIN must be 4 digits');
         user.pinHash = await hashPin(payload.pin, user.id);
       }
+      const recoveryCode = generateRecoveryCode();
+      user.recoveryHash = await hashRecoveryCode(recoveryCode, user.id);
       data.users = [user];
       data.householdType = 'SINGLE';
       data.settlements = [];
       data.setupComplete = true;
       saveData(data);
       setSessionUserId(user.id);
-      return { token: user.id, user: publicUser(user) } as T;
+      return { token: user.id, user: publicUser(user), recoveryCode } as T;
     }
 
     if (data.setupComplete) {
@@ -1187,6 +1192,8 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       if (!validatePinFormat(payload.pin)) throw new ApiError(400, 'PIN must be 4 digits');
       users[0].pinHash = await hashPin(payload.pin, users[0].id);
     }
+    const recoveryCode = generateRecoveryCode();
+    users[0].recoveryHash = await hashRecoveryCode(recoveryCode, users[0].id);
     data.users = users;
     data.householdType = payload.householdType;
     data.householdName = payload.householdName?.trim() || undefined;
@@ -1194,7 +1201,36 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     data.setupComplete = true;
     saveData(data);
     setSessionUserId(users[0].id);
-    return { token: users[0].id, user: publicUser(users[0]) } as T;
+    return { token: users[0].id, user: publicUser(users[0]), recoveryCode } as T;
+  }
+
+  if (route === '/auth/forgot-pin' && method === 'POST') {
+    const { username, recoveryCode, newPin } = body as {
+      username?: string;
+      recoveryCode?: string;
+      newPin?: string;
+    };
+    if (!username?.trim()) throw new ApiError(400, 'Enter your username');
+    if (!recoveryCode?.trim()) throw new ApiError(400, 'Enter your recovery code');
+    if (!newPin || !validatePinFormat(newPin)) throw new ApiError(400, 'New PIN must be 4 digits');
+    if (!data.setupComplete) throw new ApiError(404, 'Account not found — sign up first');
+
+    const key = normalizeUsername(username);
+    const user = data.users.find((u) => u.username === key);
+    if (!user) throw new ApiError(404, 'No account with that username');
+    if (!user.recoveryHash) {
+      throw new ApiError(
+        400,
+        'No recovery code on this account. Sign in on a device where you are still logged in, then create one in Settings.',
+      );
+    }
+
+    const ok = await verifyRecoveryCode(recoveryCode, user.id, user.recoveryHash);
+    if (!ok) throw new ApiError(401, 'Wrong recovery code');
+
+    user.pinHash = await hashPin(newPin, user.id);
+    saveData(data);
+    return { ok: true } as T;
   }
 
   if (route === '/auth/login' && method === 'POST') {
@@ -1225,7 +1261,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     return publicUser(user) as T;
   }
 
-  if (!sessionId && route !== '/auth/register' && route !== '/auth/signup' && route !== '/auth/login') {
+  if (!sessionId && route !== '/auth/register' && route !== '/auth/signup' && route !== '/auth/login' && route !== '/auth/forgot-pin') {
     throw new ApiError(401, 'Not signed in');
   }
 
@@ -1347,6 +1383,22 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     delete user.pinHash;
     saveData(data);
     return publicUser(user) as T;
+  }
+
+  if (route === '/users/me/recovery-code' && method === 'POST') {
+    const { currentPin } = body as { currentPin?: string };
+    const idx = data.users.findIndex((u) => u.id === sessionId);
+    if (idx < 0) throw new ApiError(404, 'User not found');
+    const user = data.users[idx];
+    if (user.pinHash) {
+      if (!currentPin) throw new ApiError(400, 'Enter your current PIN');
+      const ok = await verifyPin(currentPin, user.id, user.pinHash);
+      if (!ok) throw new ApiError(401, 'Wrong current PIN');
+    }
+    const recoveryCode = generateRecoveryCode();
+    user.recoveryHash = await hashRecoveryCode(recoveryCode, user.id);
+    saveData(data);
+    return { recoveryCode } as T;
   }
 
   // Tasks

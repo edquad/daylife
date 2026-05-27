@@ -13,10 +13,11 @@ import {
   type HouseholdType,
 } from '../../lib/household';
 import { toast } from '../../components/Toaster';
-import { Heart, Download, Upload, Trash2, UserPlus, LogOut, Cloud, RefreshCw, Smartphone, Lock } from 'lucide-react';
+import { Heart, Download, Upload, Trash2, UserPlus, LogOut, Cloud, RefreshCw, Smartphone, Lock, KeyRound } from 'lucide-react';
 import { usePwaInstall } from '../../hooks/usePwaInstall';
 import { AndroidInstallSteps, IosInstallSteps } from '../../components/InstallInstructions';
 import { PinModal } from '../../components/PinModal';
+import { RecoveryCodeModal } from '../../components/RecoveryCodeModal';
 import { ApiError } from '../../lib/api';
 import { APP_NAME, APP_TAGLINE } from '../../lib/brand';
 import { forceAppRefresh } from '../../lib/appUpdate';
@@ -30,9 +31,10 @@ export function SettingsPage() {
   const [name, setName] = useState(user?.name || '');
   const [color, setColor] = useState(user?.color || '#0F766E');
   const [newMemberName, setNewMemberName] = useState('');
-  const [pinModal, setPinModal] = useState<'set' | 'change-current' | 'change-new' | 'remove' | null>(null);
+  const [pinModal, setPinModal] = useState<'set' | 'change-current' | 'change-new' | 'remove' | 'recovery' | null>(null);
   const [pinError, setPinError] = useState('');
   const [currentPinDraft, setCurrentPinDraft] = useState('');
+  const [newRecoveryCode, setNewRecoveryCode] = useState<string | null>(null);
 
   const { data: household } = useQuery<HouseholdInfo>({
     queryKey: ['household'],
@@ -76,6 +78,17 @@ export function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       queryClient.invalidateQueries({ queryKey: ['household'] });
       toast.success('Member removed');
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const generateRecovery = useMutation({
+    mutationFn: (currentPin?: string) =>
+      api.post<{ recoveryCode: string }>('/users/me/recovery-code', { currentPin }),
+    onSuccess: (res) => {
+      setNewRecoveryCode(res.recoveryCode);
+      refreshUser();
+      queryClient.invalidateQueries({ queryKey: ['users'] });
     },
     onError: (err: any) => toast.error(err.message),
   });
@@ -214,6 +227,36 @@ export function SettingsPage() {
             Set PIN
           </button>
         )}
+      </section>
+
+      <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
+        <h2 className="font-semibold flex items-center gap-2">
+          <KeyRound size={18} className="text-amber-600" /> Forgot PIN?
+        </h2>
+        <p className="text-sm text-gray-500">
+          Your recovery code lets you set a new PIN on the sign-in screen. Keep it somewhere safe — like a notes app or password manager.
+        </p>
+        {user?.hasRecoveryCode ? (
+          <p className="text-sm text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2">
+            Recovery code is set on your account.
+          </p>
+        ) : (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+            No recovery code yet. Create one now so you can reset your PIN later.
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setPinError('');
+            if (user?.hasPin) setPinModal('recovery');
+            else generateRecovery.mutate(undefined);
+          }}
+          disabled={generateRecovery.isPending}
+          className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+        >
+          {user?.hasRecoveryCode ? 'Create new recovery code' : 'Create recovery code'}
+        </button>
       </section>
 
       <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-4 hidden">
@@ -399,11 +442,22 @@ export function SettingsPage() {
         </button>
       </section>
 
+      {newRecoveryCode && (
+        <RecoveryCodeModal
+          code={newRecoveryCode}
+          title={user?.hasRecoveryCode ? 'New recovery code' : 'Your recovery code'}
+          subtitle="Save this code somewhere safe. You need it on the sign-in screen if you forget your PIN."
+          onClose={() => setNewRecoveryCode(null)}
+        />
+      )}
+
       {pinModal && (
         <PinModal
           title={
             pinModal === 'remove'
               ? 'Remove PIN'
+              : pinModal === 'recovery'
+                ? 'Confirm PIN'
               : pinModal === 'change-current'
                 ? 'Current PIN'
                 : pinModal === 'change-new'
@@ -413,6 +467,8 @@ export function SettingsPage() {
           subtitle={
             pinModal === 'remove'
               ? 'Enter your current PIN to remove it'
+              : pinModal === 'recovery'
+                ? 'Enter your PIN to create a recovery code'
               : pinModal === 'change-current'
                 ? 'Enter your current PIN'
                 : pinModal === 'change-new'
@@ -422,6 +478,8 @@ export function SettingsPage() {
           submitLabel={
             pinModal === 'remove'
               ? 'Remove PIN'
+              : pinModal === 'recovery'
+                ? 'Create code'
               : pinModal === 'change-new'
                 ? 'Save new PIN'
                 : 'Continue'
@@ -434,6 +492,11 @@ export function SettingsPage() {
           error={pinError}
           onSubmit={async (pin) => {
             try {
+              if (pinModal === 'recovery') {
+                await generateRecovery.mutateAsync(pin);
+                setPinModal(null);
+                return;
+              }
               if (pinModal === 'remove') {
                 await api.delete('/users/me/pin', { currentPin: pin });
                 toast.success('PIN removed');

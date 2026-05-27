@@ -17,11 +17,20 @@ export interface LoginInput {
   pin?: string;
 }
 
+export interface ResetPinInput {
+  username: string;
+  recoveryCode: string;
+  newPin: string;
+}
+
 interface AuthContextType {
   user: User | null;
   setupComplete: boolean;
-  signup: (input: SignupInput) => Promise<void>;
+  pendingRecoveryCode: string | null;
+  acknowledgeRecoveryCode: () => void;
+  signup: (input: SignupInput) => Promise<string | undefined>;
   login: (input: LoginInput) => Promise<void>;
+  resetPin: (input: ResetPinInput) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
   isLoading: boolean;
@@ -33,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [setupComplete, setSetupComplete] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [pendingRecoveryCode, setPendingRecoveryCode] = useState<string | null>(null);
 
   const refreshFromStorage = () => {
     const data = loadData();
@@ -71,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearAccountData();
     saveGitHubConfig({ lastSha: undefined, lastSyncedAt: undefined });
 
-    const res = await api.post<{ token: string; user: User }>('/auth/signup', {
+    const res = await api.post<{ token: string; user: User; recoveryCode?: string }>('/auth/signup', {
       username: normalizeUsername(username),
       name: name.trim(),
       pin: pin?.trim() || undefined,
@@ -94,6 +104,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* inbox optional */
     }
     await queryClient.invalidateQueries();
+    if (res.recoveryCode) setPendingRecoveryCode(res.recoveryCode);
+    return res.recoveryCode;
+  };
+
+  const acknowledgeRecoveryCode = () => setPendingRecoveryCode(null);
+
+  const resetPin = async ({ username, recoveryCode, newPin }: ResetPinInput) => {
+    clearUnlock();
+    api.setToken(null);
+    setUser(null);
+
+    const accountId = await resolveAccountId(username);
+    if (!accountId) {
+      throw new Error('No account with that username.');
+    }
+
+    setActiveAccountId(accountId);
+    clearAccountData();
+    saveGitHubConfig({ lastSha: undefined, lastSyncedAt: undefined });
+
+    try {
+      await syncNow(loadGitHubConfig());
+    } catch {
+      throw new Error('Could not load your account from cloud. Check connection and try again.');
+    }
+
+    await api.post('/auth/forgot-pin', {
+      username: normalizeUsername(username),
+      recoveryCode,
+      newPin,
+    });
+
+    try {
+      await syncNow(loadGitHubConfig());
+    } catch {
+      /* PIN saved locally; cloud push will retry */
+    }
+
+    await login({ username, pin: newPin });
   };
 
   const login = async ({ username, pin }: LoginInput) => {
@@ -149,7 +198,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      user, setupComplete, signup, login, logout, refreshUser, isLoading,
+      user,
+      setupComplete,
+      pendingRecoveryCode,
+      acknowledgeRecoveryCode,
+      signup,
+      login,
+      resetPin,
+      logout,
+      refreshUser,
+      isLoading,
     }}>
       {children}
     </AuthContext.Provider>
