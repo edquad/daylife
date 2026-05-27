@@ -1,16 +1,25 @@
 import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { api, Expense, Task, User, Connection } from '../../lib/api';
+import {
+  api,
+  Expense,
+  Task,
+  User,
+  Connection,
+  ShoppingItem,
+  RoutineToday,
+  VisionBoardItemEnriched,
+} from '../../lib/api';
 import { useAuth } from '../auth/AuthContext';
 import { useDateStore } from '../../lib/dateStore';
 import { formatDayHeading, formatMoney, todayISO } from '../../lib/format';
-import { DayPicker } from '../../components/DayPicker';
 import { PersonDayColumn } from '../../components/PersonDayColumn';
 import { SharedDayColumn } from '../../components/SharedDayColumn';
 import { VisibilityToggle } from '../../components/VisibilityToggle';
 import { defaultVisibility } from '../../lib/privacy';
 import type { ItemVisibility } from '../../lib/privacy';
+import { PageHeader, DaySection } from '../../components/PageHeader';
 import {
   AlertCircle,
   Plus,
@@ -21,6 +30,10 @@ import {
   Receipt,
   Users,
   ChevronRight,
+  CheckSquare,
+  Star,
+  LayoutDashboard,
+  Circle,
 } from 'lucide-react';
 import { AREA_COLORS, AREA_LABELS, memberGridClass } from '../../lib/utils';
 import { SharedFeatureLinks } from '../../components/SharedFeatureLinks';
@@ -53,31 +66,6 @@ interface DaySummary {
   recentNotes: Array<{ id: string; content: string; area: string; author: { name: string } }>;
 }
 
-function QuickLink({
-  to,
-  icon,
-  label,
-  detail,
-}: {
-  to: string;
-  icon: React.ReactNode;
-  label: string;
-  detail?: string;
-}) {
-  return (
-    <Link
-      to={to}
-      className="flex items-center gap-2.5 shrink-0 min-w-[7.5rem] px-3 py-2.5 bg-white border border-gray-200 rounded-xl hover:border-brand-300 hover:bg-brand-50/30 transition-colors touch-manipulation"
-    >
-      <span className="text-brand-600">{icon}</span>
-      <div className="min-w-0">
-        <p className="text-xs text-gray-500">{label}</p>
-        {detail && <p className="text-sm font-semibold text-gray-900 truncate">{detail}</p>}
-      </div>
-    </Link>
-  );
-}
-
 export function DashboardPage() {
   const { user } = useAuth();
   const selectedDate = useDateStore((s) => s.selectedDate);
@@ -93,6 +81,22 @@ export function DashboardPage() {
     queryFn: () => api.get('/users'),
   });
 
+  const { data: shoppingData } = useQuery<{ data: ShoppingItem[] }>({
+    queryKey: ['shopping'],
+    queryFn: () => api.get('/shopping'),
+  });
+
+  const { data: routinesData } = useQuery<{ date: string; routines: RoutineToday[] }>({
+    queryKey: ['routines-today', selectedDate],
+    queryFn: () => api.get(`/routines/today?date=${selectedDate}`),
+  });
+  const routines = routinesData?.routines ?? [];
+
+  const { data: visionPreview = [] } = useQuery<VisionBoardItemEnriched[]>({
+    queryKey: ['vision-board', 'preview'],
+    queryFn: () => api.get('/vision-board?achieved=false'),
+  });
+
   const { data: sharedSummary } = useQuery<{
     columns: Array<{ spaceId: string; partnerName: string; partnerUsername: string; tasks: Task[] }>;
     expenseGroups: Array<{ spaceId: string; partnerName: string; expenses: Expense[]; total: string }>;
@@ -105,6 +109,14 @@ export function DashboardPage() {
   const { data: connections = [] } = useQuery<Connection[]>({
     queryKey: ['connections'],
     queryFn: () => api.get('/connections'),
+  });
+
+  const toggleShopping = useMutation({
+    mutationFn: (id: string) => api.patch(`/shopping/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['shopping'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
   });
 
   const hasActiveShare = connections.some((c) => c.status === 'active');
@@ -140,7 +152,7 @@ export function DashboardPage() {
   if (isLoading) {
     return (
       <div className="p-4 max-w-3xl mx-auto animate-pulse space-y-4">
-        <div className="h-9 bg-gray-200 rounded w-48" />
+        <div className="h-28 bg-gray-200 rounded-2xl" />
         <div className="h-64 bg-gray-200 rounded-2xl" />
       </div>
     );
@@ -151,7 +163,7 @@ export function DashboardPage() {
   const isToday = selectedDate === todayISO();
   const monthKey = selectedDate.slice(0, 7);
   const monthTasksPending = data?.monthTasksPending ?? [];
-  const shoppingPending = data?.shoppingPending ?? 0;
+  const shoppingPending = shoppingData?.data.filter((i) => !i.checked) ?? [];
   const routineDone = data?.routineDone ?? 0;
   const routineTotal = data?.routineTotal ?? 0;
   const upcomingReminders = data?.upcomingReminders ?? [];
@@ -159,17 +171,29 @@ export function DashboardPage() {
   const hasTodayExpenses =
     todayExpenses.length > 0 || sharedExpenseGroups.some((g) => g.expenses.length > 0);
 
+  const allTodayTasks = byPerson.flatMap((p) => p.tasks);
+  const todayDone = allTodayTasks.filter((t) => t.status === 'DONE').length;
+  const todayTotal = allTodayTasks.length + sharedColumns.reduce((n, c) => n + c.tasks.length, 0);
+  const todayDoneAll =
+    todayDone + sharedColumns.reduce((n, c) => n + c.tasks.filter((t) => t.status === 'DONE').length, 0);
+
   return (
-    <div className="p-4 lg:p-6 max-w-3xl mx-auto space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold text-gray-900 truncate">{formatDayHeading(selectedDate)}</h1>
-          {user?.name && isToday && (
-            <p className="text-sm text-gray-500">Hi {user.name.split(' ')[0]}</p>
-          )}
-        </div>
-        <DayPicker />
-      </div>
+    <div className="p-4 lg:p-6 max-w-3xl mx-auto space-y-5">
+      <PageHeader
+        theme="today"
+        icon={LayoutDashboard}
+        title={formatDayHeading(selectedDate)}
+        subtitle={isToday && user?.name ? `Good day, ${user.name.split(' ')[0]} 👋` : 'Your day at a glance'}
+        hint="Check tasks here · use Lists & habits for shopping · Dreams & goals for long-term vision"
+        action={
+          todayTotal > 0 ? (
+            <div className="text-right shrink-0">
+              <p className="text-2xl font-bold tabular-nums">{todayDoneAll}/{todayTotal}</p>
+              <p className="text-xs text-white/80">done today</p>
+            </div>
+          ) : undefined
+        }
+      />
 
       {(data?.overdueCount ?? 0) > 0 && isToday && (
         <Link
@@ -177,129 +201,200 @@ export function DashboardPage() {
           className="flex items-center gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800"
         >
           <AlertCircle size={16} className="shrink-0" />
-          <span>{data!.overdueCount} overdue — tap to view</span>
+          <span>{data!.overdueCount} overdue — open task inbox</span>
           <ChevronRight size={16} className="ml-auto shrink-0" />
         </Link>
       )}
 
-      <div className={memberGridClass(Math.max(members.length, 1) + sharedColumns.length)}>
-        {[...members]
-          .sort((a, b) => {
-            if (a.id === user?.id) return -1;
-            if (b.id === user?.id) return 1;
-            return 0;
-          })
-          .map((member) => {
-            const personData = byPerson.find((p) => p.userId === member.id);
-            return (
-              <PersonDayColumn
-                key={member.id}
-                person={member}
-                tasks={personData?.tasks ?? []}
-                selectedDate={selectedDate}
-                highlight={member.id === user?.id}
-                compact={member.id === user?.id && !isMultiMember}
-              />
-            );
-          })}
-        {sharedColumns.map((col) => (
-          <SharedDayColumn
-            key={col.spaceId}
-            spaceId={col.spaceId}
-            partnerName={col.partnerName}
-            tasks={col.tasks}
-            selectedDate={selectedDate}
-          />
-        ))}
-      </div>
-
-      {hasActiveShare && sharedColumns.length === 0 && activeConnections.length > 0 && (
-        <div className="px-3 py-2.5 rounded-xl bg-violet-50 border border-violet-100 text-sm">
-          <p className="text-violet-900 font-medium">
-            Sharing with @{activeConnections[0].partnerUsername}
-          </p>
-          <SharedFeatureLinks features={activeConnections[0].features} className="mt-2" />
-        </div>
-      )}
-
-      {!hasActiveShare && (
-        <p className="text-center text-sm text-gray-500">
-          Share lists with someone?{' '}
-          <Link to="/connections" className="text-brand-600 font-medium hover:underline">
-            Invite by username
+      <DaySection
+        accent="blue"
+        icon={CheckSquare}
+        title="Today's to-dos"
+        subtitle="Quick check-off — add with + or voice"
+        action={
+          <Link to="/tasks" className="text-xs font-medium text-blue-600 hover:underline shrink-0">
+            All tasks →
           </Link>
-        </p>
-      )}
+        }
+      >
+        <div className={memberGridClass(Math.max(members.length, 1) + sharedColumns.length)}>
+          {[...members]
+            .sort((a, b) => {
+              if (a.id === user?.id) return -1;
+              if (b.id === user?.id) return 1;
+              return 0;
+            })
+            .map((member) => {
+              const personData = byPerson.find((p) => p.userId === member.id);
+              return (
+                <PersonDayColumn
+                  key={member.id}
+                  person={member}
+                  tasks={personData?.tasks ?? []}
+                  selectedDate={selectedDate}
+                  highlight={member.id === user?.id}
+                  compact={member.id === user?.id && !isMultiMember}
+                />
+              );
+            })}
+          {sharedColumns.map((col) => (
+            <SharedDayColumn
+              key={col.spaceId}
+              spaceId={col.spaceId}
+              partnerName={col.partnerName}
+              tasks={col.tasks}
+              selectedDate={selectedDate}
+            />
+          ))}
+        </div>
+        {todayTotal === 0 && (
+          <p className="text-sm text-gray-500 text-center py-4">
+            Nothing planned yet. Type a task above or tap + to add one.
+          </p>
+        )}
+      </DaySection>
 
-      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-        <QuickLink
-          to={`/expenses?date=${selectedDate}`}
-          icon={<Receipt size={18} />}
-          label="Spent today"
-          detail={formatMoney(data?.todayExpenseTotal)}
-        />
-        <QuickLink
-          to="/daily?tab=routines"
-          icon={<Sun size={18} />}
-          label="Routines"
-          detail={`${routineDone}/${routineTotal}`}
-        />
-        <QuickLink
-          to="/daily?tab=shopping"
-          icon={<ShoppingCart size={18} />}
-          label="Shopping"
-          detail={shoppingPending === 0 ? 'All done' : `${shoppingPending} left`}
-        />
-        <QuickLink
-          to="/daily?tab=reminders"
-          icon={<Bell size={18} />}
-          label="Reminders"
-          detail={upcomingReminders.length === 0 ? 'None soon' : `${upcomingReminders.length} soon`}
-        />
-        <QuickLink
-          to="/connections"
-          icon={<Users size={18} />}
-          label="Share"
-          detail={hasActiveShare ? 'Connected' : 'Invite'}
-        />
+      <div className="grid sm:grid-cols-2 gap-4">
+        <DaySection
+          accent="green"
+          icon={ShoppingCart}
+          title="Buy today"
+          subtitle={shoppingPending.length === 0 ? 'List is clear' : `${shoppingPending.length} items to get`}
+          action={
+            <Link to="/daily?tab=shopping" className="text-xs font-medium text-emerald-600 hover:underline">
+              Open list →
+            </Link>
+          }
+        >
+          {shoppingPending.length === 0 ? (
+            <p className="text-sm text-gray-500">Need milk, veggies, or medicine? Add to your shopping list.</p>
+          ) : (
+            <ul className="space-y-2">
+              {shoppingPending.slice(0, 4).map((item) => (
+                <li key={item.id} className="flex items-center gap-2 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => toggleShopping.mutate(item.id)}
+                    className="text-emerald-600 shrink-0"
+                  >
+                    <Circle size={16} />
+                  </button>
+                  <span className="truncate">{item.name}</span>
+                  {item.quantity && <span className="text-gray-400 text-xs shrink-0">×{item.quantity}</span>}
+                </li>
+              ))}
+              {shoppingPending.length > 4 && (
+                <Link to="/daily?tab=shopping" className="text-xs text-emerald-600 font-medium">
+                  +{shoppingPending.length - 4} more
+                </Link>
+              )}
+            </ul>
+          )}
+        </DaySection>
+
+        <DaySection
+          accent="amber"
+          icon={Sun}
+          title="Daily habits"
+          subtitle={routineTotal === 0 ? 'Set up morning/evening routines' : `${routineDone}/${routineTotal} done`}
+          action={
+            <Link to="/daily?tab=routines" className="text-xs font-medium text-amber-600 hover:underline">
+              All habits →
+            </Link>
+          }
+        >
+          {routines.length === 0 ? (
+            <p className="text-sm text-gray-500">Track water, exercise, prayer — build your daily rhythm.</p>
+          ) : (
+            <ul className="space-y-2">
+              {routines.slice(0, 3).map((r) => (
+                <li key={r.id} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="truncate">{r.name}</span>
+                  <span className="text-amber-700 font-medium tabular-nums shrink-0">
+                    {r.done}/{r.total}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DaySection>
+
+        <DaySection
+          accent="rose"
+          icon={Bell}
+          title="Coming up"
+          subtitle={upcomingReminders.length === 0 ? 'No dates soon' : 'Birthdays, bills & reminders'}
+          action={
+            <Link to="/daily?tab=reminders" className="text-xs font-medium text-rose-600 hover:underline">
+              All dates →
+            </Link>
+          }
+        >
+          {upcomingReminders.length === 0 ? (
+            <p className="text-sm text-gray-500">Add rent due dates, birthdays, or appointments.</p>
+          ) : (
+            <ul className="space-y-2">
+              {upcomingReminders.slice(0, 3).map((r) => (
+                <li key={r.id} className="flex justify-between gap-2 text-sm">
+                  <span className="truncate font-medium">{r.title}</span>
+                  <span className="text-rose-600 text-xs shrink-0">
+                    {r.daysUntil === 0 ? 'Today' : r.daysUntil === 1 ? 'Tomorrow' : `${r.daysUntil}d`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DaySection>
+
+        <DaySection
+          accent="violet"
+          icon={Star}
+          title="Dreams & goals"
+          subtitle="Long-term vision — not daily tasks"
+          action={
+            <Link to="/vision" className="text-xs font-medium text-violet-600 hover:underline">
+              Vision board →
+            </Link>
+          }
+        >
+          {visionPreview.length === 0 ? (
+            <p className="text-sm text-gray-500">Save travel plans, career goals, or things you&apos;re saving for.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {visionPreview.slice(0, 3).map((v) => (
+                <Link
+                  key={v.id}
+                  to="/vision"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-100 text-violet-800 text-xs font-medium"
+                >
+                  <span>{v.emoji || '✨'}</span>
+                  <span className="truncate max-w-[8rem]">{v.title}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </DaySection>
       </div>
 
-      {monthTasksPending.length > 0 && (
-        <section className="bg-white rounded-xl border p-3">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-gray-800">Open this month</h3>
-            <Link to={`/tasks?month=${monthKey}&status=TODO`} className="text-xs text-brand-600">
-              All
-            </Link>
-          </div>
-          <div className="space-y-1">
-            {monthTasksPending.slice(0, 3).map((task) => (
-              <Link
-                key={task.id}
-                to={`/tasks?month=${monthKey}`}
-                className="flex items-center justify-between py-1.5 text-sm hover:bg-gray-50 rounded-lg px-1 -mx-1"
-              >
-                <span className="truncate font-medium">{task.title}</span>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full shrink-0 ml-2 ${AREA_COLORS[task.area]}`}>
-                  {AREA_LABELS[task.area]}
-                </span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {hasTodayExpenses && (
-        <section className="bg-white rounded-xl border p-3">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-gray-800">Today&apos;s expenses</h3>
-            <Link
-              to={`/expenses?add=true&date=${selectedDate}`}
-              className="text-xs text-brand-600 flex items-center gap-0.5"
-            >
-              <Plus size={12} /> Add
-            </Link>
-          </div>
+      <DaySection
+        accent="orange"
+        icon={Receipt}
+        title="Money today"
+        subtitle={hasTodayExpenses ? formatMoney(data?.todayExpenseTotal) : 'Nothing logged yet'}
+        action={
+          <Link
+            to={`/expenses?date=${selectedDate}`}
+            className="text-xs font-medium text-orange-600 hover:underline"
+          >
+            Expenses →
+          </Link>
+        }
+      >
+        {!hasTodayExpenses ? (
+          <p className="text-sm text-gray-500">
+            Log what you spent. Shared expenses with a partner go in the purple box on Expenses.
+          </p>
+        ) : (
           <div className="space-y-1">
             {todayExpenses.map((exp) => (
               <div key={exp.id} className="flex justify-between text-sm py-1">
@@ -315,6 +410,49 @@ export function DashboardPage() {
                 </div>
               )),
             )}
+          </div>
+        )}
+      </DaySection>
+
+      {hasActiveShare && sharedColumns.length === 0 && activeConnections.length > 0 && (
+        <div className="px-3 py-2.5 rounded-xl bg-violet-50 border border-violet-100 text-sm">
+          <p className="text-violet-900 font-medium">
+            Sharing with @{activeConnections[0].partnerUsername}
+          </p>
+          <SharedFeatureLinks features={activeConnections[0].features} className="mt-2" />
+        </div>
+      )}
+
+      {!hasActiveShare && (
+        <p className="text-center text-sm text-gray-500">
+          Share lists with someone?{' '}
+          <Link to="/share" className="text-brand-600 font-medium hover:underline">
+            Invite by username
+          </Link>
+        </p>
+      )}
+
+      {monthTasksPending.length > 0 && (
+        <section className="bg-white rounded-xl border p-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-800">Open this month</h3>
+            <Link to={`/tasks?month=${monthKey}&status=TODO`} className="text-xs text-brand-600">
+              Task inbox
+            </Link>
+          </div>
+          <div className="space-y-1">
+            {monthTasksPending.slice(0, 3).map((task) => (
+              <Link
+                key={task.id}
+                to={`/tasks?month=${monthKey}`}
+                className="flex items-center justify-between py-1.5 text-sm hover:bg-gray-50 rounded-lg px-1 -mx-1"
+              >
+                <span className="truncate font-medium">{task.title}</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full shrink-0 ml-2 ${AREA_COLORS[task.area]}`}>
+                  {AREA_LABELS[task.area]}
+                </span>
+              </Link>
+            ))}
           </div>
         </section>
       )}
@@ -335,7 +473,7 @@ export function DashboardPage() {
             <textarea
               value={dayNote}
               onChange={(e) => setDayNote(e.target.value)}
-              placeholder="Write something about today..."
+              placeholder="How was today? Write a quick journal line..."
               rows={2}
               className="w-full mt-3 px-3 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand-500"
             />
@@ -358,7 +496,7 @@ export function DashboardPage() {
               disabled={!dayNote.trim()}
               className="mt-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
             >
-              Save
+              Save note
             </button>
             {(data?.recentNotes ?? []).length > 0 && (
               <div className="mt-3 space-y-2">

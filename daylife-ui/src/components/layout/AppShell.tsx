@@ -9,29 +9,48 @@ import { AppLogo } from '../AppLogo';
 import { APP_NAME, APP_TAGLINE } from '../../lib/brand';
 import {
   LayoutDashboard, CheckSquare, Receipt, Briefcase, Home, Settings,
-  Menu, X, Plus, LogOut, BarChart3, Sparkles, Cloud, CloudOff, Loader2, Star, HandCoins, Users, Mic,
+  Menu, X, Plus, LogOut, BarChart3, Cloud, CloudOff, Loader2, Star, HandCoins, Users, Mic,
+  ShoppingCart, Sun, Bell,
 } from 'lucide-react';
 import { VoiceAssistantSheet, VoiceMicButton } from '../VoiceAssistant';
 import { RecoveryCodeModal } from '../RecoveryCodeModal';
 
-const baseNavItems = [
-  { path: '/', label: 'Today', icon: LayoutDashboard },
-  { path: '/tasks', label: 'All tasks', icon: CheckSquare },
-  { path: '/share', label: 'Share', icon: Users },
-  { path: '/daily', label: 'Daily life', icon: Sparkles },
-  { path: '/vision', label: 'Vision board', icon: Star },
-  { path: '/expenses', label: 'Expenses', icon: Receipt },
-  { path: '/splits', label: 'Split money', icon: HandCoins },
-  { path: '/reports', label: 'Reports', icon: BarChart3 },
-  { path: '/work', label: 'Work', icon: Briefcase },
-  { path: '/home', label: 'Home', icon: Home },
-  { path: '/settings', label: 'Settings', icon: Settings },
+const navGroups = [
+  {
+    label: 'Your day',
+    items: [
+      { path: '/', label: 'Today', icon: LayoutDashboard, hint: 'Daily check-in' },
+      { path: '/daily', label: 'Lists & habits', icon: ShoppingCart, hint: 'Shopping · routines · dates' },
+      { path: '/tasks', label: 'Task inbox', icon: CheckSquare, hint: 'Search all tasks' },
+    ],
+  },
+  {
+    label: 'Money',
+    items: [
+      { path: '/expenses', label: 'Expenses', icon: Receipt },
+      { path: '/splits', label: 'Split money', icon: HandCoins },
+      { path: '/reports', label: 'Reports', icon: BarChart3 },
+    ],
+  },
+  {
+    label: 'Dreams',
+    items: [{ path: '/vision', label: 'Dreams & goals', icon: Star, hint: 'Long-term vision' }],
+  },
+  {
+    label: 'More',
+    items: [
+      { path: '/share', label: 'Share', icon: Users },
+      { path: '/work', label: 'Work', icon: Briefcase },
+      { path: '/home', label: 'Home', icon: Home },
+      { path: '/settings', label: 'Settings', icon: Settings },
+    ],
+  },
 ];
 
 const mobileBottomNav = [
-  { path: '/', label: 'Day', icon: LayoutDashboard },
-  { path: '/tasks', label: 'Tasks', icon: CheckSquare },
-  { path: '/expenses', label: 'Spend', icon: Receipt },
+  { path: '/', label: 'Today', icon: LayoutDashboard },
+  { path: '/daily', label: 'Lists', icon: ShoppingCart },
+  { path: '/expenses', label: 'Money', icon: Receipt },
 ];
 
 export function AppShell() {
@@ -42,9 +61,9 @@ export function AppShell() {
   const [mobileAddOpen, setMobileAddOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
 
-  const navItems = baseNavItems;
+  const navItems = navGroups.flatMap((g) => g.items);
 
-  const NavLink = ({ item, onClick }: { item: typeof baseNavItems[0]; onClick?: () => void }) => {
+  const NavLink = ({ item, onClick }: { item: typeof navItems[0]; onClick?: () => void }) => {
     const Icon = item.icon;
     const active = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
     return (
@@ -77,7 +96,16 @@ export function AppShell() {
           </div>
         </div>
         <nav className="flex-1 overflow-y-auto py-2">
-          {navItems.map((item) => <NavLink key={item.path} item={item} />)}
+          {navGroups.map((group) => (
+            <div key={group.label} className="mb-3">
+              <p className="px-4 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                {group.label}
+              </p>
+              {group.items.map((item) => (
+                <NavLink key={item.path} item={item} />
+              ))}
+            </div>
+          ))}
         </nav>
         <div className="p-4 border-t">
           <div className="flex items-center justify-between">
@@ -106,8 +134,17 @@ export function AppShell() {
               <h1 className="text-xl font-bold text-brand-700">{APP_NAME}</h1>
               <button onClick={() => setSidebarOpen(false)}><X size={20} /></button>
             </div>
-            <nav className="flex-1 py-2">
-              {navItems.map((item) => <NavLink key={item.path} item={item} onClick={() => setSidebarOpen(false)} />)}
+            <nav className="flex-1 py-2 overflow-y-auto">
+              {navGroups.map((group) => (
+                <div key={group.label} className="mb-3">
+                  <p className="px-4 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                    {group.label}
+                  </p>
+                  {group.items.map((item) => (
+                    <NavLink key={item.path} item={item} onClick={() => setSidebarOpen(false)} />
+                  ))}
+                </div>
+              ))}
             </nav>
           </aside>
         </div>
@@ -184,9 +221,9 @@ export function AppShell() {
           >
             <Plus size={22} />
           </button>
-          <Link to="/work" className={`flex flex-col items-center gap-0.5 px-2 py-1 ${location.pathname.startsWith('/work') ? 'text-brand-700' : 'text-gray-400'}`}>
-            <Briefcase size={18} />
-            <span className="text-[10px]">Work</span>
+          <Link to="/vision" className={`flex flex-col items-center gap-0.5 px-2 py-1 ${location.pathname.startsWith('/vision') ? 'text-brand-700' : 'text-gray-400'}`}>
+            <Star size={18} />
+            <span className="text-[10px]">Dreams</span>
           </Link>
           <button onClick={() => setSidebarOpen(true)} className="flex flex-col items-center gap-0.5 px-2 py-1 text-gray-400">
             <Menu size={18} />
@@ -199,7 +236,8 @@ export function AppShell() {
         <div className="lg:hidden fixed inset-0 z-50">
           <div className="fixed inset-0 bg-black/50" onClick={() => setMobileAddOpen(false)} />
           <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl p-6 z-10">
-            <h3 className="text-lg font-semibold mb-4">Quick add</h3>
+            <h3 className="text-lg font-semibold mb-1">Quick add</h3>
+            <p className="text-xs text-gray-500 mb-4">Pick what you&apos;re doing right now</p>
             <button
               type="button"
               onClick={() => {
@@ -214,15 +252,31 @@ export function AppShell() {
                 <p className="text-xs text-violet-700">Say task, expense, or shopping</p>
               </div>
             </button>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-4 mb-2">Today</p>
             <div className="grid grid-cols-2 gap-3">
               {[
-                { label: 'Add task', path: '/tasks?add=true', icon: CheckSquare },
-                { label: 'Log expense', path: '/expenses?add=true', icon: Receipt },
-                { label: 'Split money', path: '/splits', icon: HandCoins },
-                { label: 'Shopping list', path: '/daily?tab=shopping', icon: Sparkles },
-                { label: 'Vision board', path: '/vision', icon: Star },
+                { label: 'Task for today', path: '/?focus=tasks', icon: CheckSquare },
+                { label: 'Shopping item', path: '/daily?tab=shopping', icon: ShoppingCart },
+                { label: 'Log spending', path: '/expenses?add=true', icon: Receipt },
+                { label: 'Habit check', path: '/daily?tab=routines', icon: Sun },
+              ].map((action) => {
+                const Icon = action.icon;
+                return (
+                  <Link key={action.path} to={action.path} onClick={() => setMobileAddOpen(false)}
+                    className="flex items-center gap-3 p-3 rounded-xl border hover:bg-gray-50">
+                    <Icon size={18} className="text-brand-600" />
+                    <span className="text-sm font-medium">{action.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-4 mb-2">Later / goals</p>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: 'Dream / goal', path: '/vision', icon: Star },
+                { label: 'Reminder date', path: '/daily?tab=reminders', icon: Bell },
+                { label: 'Split with someone', path: '/splits', icon: HandCoins },
                 { label: 'Work note', path: '/work?add=true', icon: Briefcase },
-                { label: 'Home chore', path: '/home?add=true', icon: Home },
               ].map((action) => {
                 const Icon = action.icon;
                 return (

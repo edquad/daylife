@@ -6,9 +6,10 @@ import { formatDate, formatDayHeading, todayISO } from '../../lib/format';
 import { useDateStore } from '../../lib/dateStore';
 import { DayPicker } from '../../components/DayPicker';
 import { AREA_COLORS, AREA_LABELS, PRIORITY_COLORS } from '../../lib/utils';
-import { Plus, Search, CheckCircle2, Circle, Trash2 } from 'lucide-react';
+import { Plus, Search, CheckCircle2, Circle, Trash2, Inbox } from 'lucide-react';
 import { TaskFormModal } from './TaskFormModal';
 import { toast } from '../../components/Toaster';
+import { PageHeader } from '../../components/PageHeader';
 
 interface TasksResponse {
   data: Task[];
@@ -92,19 +93,22 @@ export function TasksPage() {
     : formatDayHeading(dateFilter);
 
   return (
-    <div className="p-4 lg:p-6 space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">{monthFilter ? 'Tasks this month' : 'All tasks'}</h1>
-          <p className="text-gray-500 text-sm">{heading}</p>
-        </div>
-        <button
-          onClick={() => { setEditTask(null); setModalOpen(true); }}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium"
-        >
-          <Plus size={16} /> Add task
-        </button>
-      </div>
+    <div className="p-4 lg:p-6 space-y-4 max-w-3xl mx-auto">
+      <PageHeader
+        theme="tasks"
+        icon={Inbox}
+        title={monthFilter ? 'Tasks this month' : 'Task inbox'}
+        subtitle={heading}
+        hint="Search & filter all tasks. For today's quick check-off, use the Today page."
+        action={
+          <button
+            onClick={() => { setEditTask(null); setModalOpen(true); }}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-xl text-sm font-medium shrink-0"
+          >
+            <Plus size={16} /> Add
+          </button>
+        }
+      />
 
       {!monthFilter && <DayPicker />}
 

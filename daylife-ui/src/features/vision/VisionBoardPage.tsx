@@ -5,7 +5,8 @@ import { api, VisionBoardItemEnriched, VisionCategory, User } from '../../lib/ap
 import { categoryMeta, VISION_CATEGORIES, VISION_INSPIRATIONS } from '../../lib/visionBoard';
 import { cn } from '../../lib/utils';
 import { toast } from '../../components/Toaster';
-import { Plus, Sparkles, Trash2, Check, X, ImageIcon } from 'lucide-react';
+import { Plus, Sparkles, Trash2, Check, X, ImageIcon, Star } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 
 type Filter = 'all' | 'active' | 'achieved' | 'mine' | 'shared';
 
@@ -154,28 +155,23 @@ export function VisionBoardPage() {
   const achievedCount = allItems.filter((i) => i.achieved).length;
 
   return (
-    <div className="p-4 lg:p-6 space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Sparkles size={26} className="text-violet-600" />
-            Vision board
-          </h1>
-          <p className="text-gray-500 text-sm mt-1">
-            Your dreams & goals — shared with your household, synced to the cloud
-          </p>
-          <p className="text-xs text-gray-400 mt-1">
-            {activeCount} active · {achievedCount} achieved
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => openAdd()}
-          className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 text-white rounded-xl hover:bg-violet-700 text-sm font-medium shrink-0"
-        >
-          <Plus size={18} /> Add vision
-        </button>
-      </div>
+    <div className="p-4 lg:p-6 space-y-5 max-w-4xl mx-auto">
+      <PageHeader
+        theme="vision"
+        icon={Star}
+        title="Dreams & goals"
+        subtitle={`${activeCount} you're working toward · ${achievedCount} achieved`}
+        hint="Big life goals & vision — not daily to-dos. Use Today for everyday tasks."
+        action={
+          <button
+            type="button"
+            onClick={() => openAdd()}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-xl text-sm font-medium shrink-0"
+          >
+            <Plus size={16} /> Add dream
+          </button>
+        }
+      />
 
       <section className="bg-gradient-to-r from-violet-50 via-fuchsia-50 to-amber-50 rounded-2xl border border-violet-100 p-4">
         <p className="text-sm font-medium text-violet-900 mb-2">Quick add</p>

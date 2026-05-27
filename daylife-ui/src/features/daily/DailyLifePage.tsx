@@ -13,6 +13,7 @@ import { useDateStore } from '../../lib/dateStore';
 import { formatDate, todayISO } from '../../lib/format';
 import { cn } from '../../lib/utils';
 import { toast } from '../../components/Toaster';
+import { PageHeader } from '../../components/PageHeader';
 import {
   ShoppingCart,
   Sun,
@@ -27,10 +28,10 @@ import {
 
 type Tab = 'shopping' | 'routines' | 'reminders';
 
-const TABS: { id: Tab; label: string; icon: typeof ShoppingCart }[] = [
-  { id: 'shopping', label: 'Shopping', icon: ShoppingCart },
-  { id: 'routines', label: 'Routines', icon: Sun },
-  { id: 'reminders', label: 'Reminders', icon: Bell },
+const TABS: { id: Tab; label: string; icon: typeof ShoppingCart; color: string; active: string }[] = [
+  { id: 'shopping', label: 'Shopping', icon: ShoppingCart, color: 'text-emerald-700', active: 'bg-emerald-600 text-white shadow-sm' },
+  { id: 'routines', label: 'Habits', icon: Sun, color: 'text-amber-700', active: 'bg-amber-500 text-white shadow-sm' },
+  { id: 'reminders', label: 'Dates', icon: Bell, color: 'text-rose-700', active: 'bg-rose-500 text-white shadow-sm' },
 ];
 
 const SHOP_CATEGORIES: { id: ShoppingCategory; label: string; color: string }[] = [
@@ -685,24 +686,24 @@ export function DailyLifePage() {
   };
 
   return (
-    <div className="p-4 lg:p-6 space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Sparkles size={24} className="text-brand-600" />
-          Daily life
-        </h1>
-        <p className="text-gray-500 text-sm">Shopping, habits & reminders — everything in one place</p>
-      </div>
+    <div className="p-4 lg:p-6 space-y-5 max-w-3xl mx-auto">
+      <PageHeader
+        theme="life"
+        icon={ShoppingCart}
+        title="Lists & habits"
+        subtitle="Groceries to buy · daily routines · important dates"
+        hint="Not the same as Today tasks — this is for shopping lists, habits, and birthdays"
+      />
 
-      <div className="flex flex-wrap gap-2 p-1 bg-gray-100 rounded-xl w-fit">
-        {TABS.map(({ id, label, icon: Icon }) => (
+      <div className="flex flex-wrap gap-2 p-1.5 bg-gray-100 rounded-xl">
+        {TABS.map(({ id, label, icon: Icon, active }) => (
           <button
             key={id}
             type="button"
             onClick={() => setTab(id)}
             className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-              tab === id ? 'bg-white shadow-sm text-brand-700' : 'text-gray-500 hover:text-gray-700',
+              'flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex-1 sm:flex-none justify-center',
+              tab === id ? active : 'text-gray-500 hover:text-gray-700 hover:bg-white/60',
             )}
           >
             <Icon size={16} />
