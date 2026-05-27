@@ -8,12 +8,15 @@ import {
   Reminder,
   UpcomingReminder,
   ShoppingCategory,
+  User,
 } from '../../lib/api';
 import { useDateStore } from '../../lib/dateStore';
 import { formatDate, todayISO } from '../../lib/format';
 import { cn } from '../../lib/utils';
 import { toast } from '../../components/Toaster';
 import { PageHeader } from '../../components/PageHeader';
+import { ShareScopePicker } from '../../components/ShareScopePicker';
+import type { ShareScope } from '../../lib/shareScope';
 import {
   ShoppingCart,
   Sun,
@@ -53,6 +56,12 @@ function ShoppingTab() {
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('');
   const [category, setCategory] = useState<ShoppingCategory>('GROCERIES');
+  const [shareScope, setShareScope] = useState<ShareScope>({ kind: 'personal', visibility: 'SHARED' });
+
+  const { data: members = [] } = useQuery<User[]>({
+    queryKey: ['users'],
+    queryFn: () => api.get('/users'),
+  });
 
   const { data, isLoading } = useQuery<{ data: ShoppingItem[]; pending: number }>({
     queryKey: ['shopping'],
@@ -91,8 +100,22 @@ function ShoppingTab() {
   });
 
   const addSharedItem = useMutation({
-    mutationFn: ({ spaceId, itemName }: { spaceId: string; itemName: string }) =>
-      api.post<ShoppingItem>(`/shared/${spaceId}/shopping`, { name: itemName, category: 'GROCERIES' }),
+    mutationFn: ({
+      spaceId,
+      itemName,
+      itemQuantity,
+      itemCategory,
+    }: {
+      spaceId: string;
+      itemName: string;
+      itemQuantity?: string;
+      itemCategory?: ShoppingCategory;
+    }) =>
+      api.post<ShoppingItem>(`/shared/${spaceId}/shopping`, {
+        name: itemName,
+        quantity: itemQuantity,
+        category: itemCategory || 'GROCERIES',
+      }),
     onSuccess: () => { invalidate(); toast.success('Added to shared list'); },
   });
 
@@ -120,7 +143,16 @@ function ShoppingTab() {
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    addItem.mutate({ name: name.trim(), quantity: quantity.trim() || undefined });
+    if (shareScope.kind === 'connection') {
+      addSharedItem.mutate({
+        spaceId: shareScope.spaceId,
+        itemName: name.trim(),
+        itemQuantity: quantity.trim() || undefined,
+        itemCategory: category,
+      });
+    } else {
+      addItem.mutate({ name: name.trim(), quantity: quantity.trim() || undefined });
+    }
     setName('');
     setQuantity('');
   };
@@ -142,6 +174,12 @@ function ShoppingTab() {
           ))}
         </div>
         <form onSubmit={handleAdd} className="space-y-3">
+          <ShareScopePicker
+            feature="shopping"
+            value={shareScope}
+            onChange={setShareScope}
+            membersCount={members.length}
+          />
           <div className="flex flex-wrap gap-1">
             {SHOP_CATEGORIES.map((c) => (
               <button
@@ -223,22 +261,6 @@ function ShoppingTab() {
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-violet-900">Shared shopping with {group.partnerName}</h2>
             <span className="text-xs text-violet-700">{group.pending} to buy</span>
-          </div>
-          <div className="flex gap-2">
-            <input
-              id={`shared-shop-${group.spaceId}`}
-              placeholder="Add shared item..."
-              className="flex-1 px-3 py-2 border rounded-lg text-sm bg-white"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  const input = e.currentTarget;
-                  if (!input.value.trim()) return;
-                  addSharedItem.mutate({ spaceId: group.spaceId, itemName: input.value.trim() });
-                  input.value = '';
-                }
-              }}
-            />
           </div>
           {group.items.length === 0 ? (
             <p className="text-sm text-violet-600/70">Shared list is empty.</p>
@@ -462,6 +484,12 @@ function RemindersTab() {
   const [dueDate, setDueDate] = useState(todayISO());
   const [repeat, setRepeat] = useState<Reminder['repeat']>('NONE');
   const [notes, setNotes] = useState('');
+  const [shareScope, setShareScope] = useState<ShareScope>({ kind: 'personal', visibility: 'SHARED' });
+
+  const { data: members = [] } = useQuery<User[]>({
+    queryKey: ['users'],
+    queryFn: () => api.get('/users'),
+  });
 
   const { data: reminders = [], isLoading } = useQuery<Reminder[]>({
     queryKey: ['reminders'],
@@ -481,7 +509,6 @@ function RemindersTab() {
   });
 
   const sharedGroups = sharedReminders?.groups ?? [];
-  const [sharedDrafts, setSharedDrafts] = useState<Record<string, { title: string; dueDate: string }>>({});
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['reminders'] });
@@ -490,13 +517,23 @@ function RemindersTab() {
     queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
-  const addReminder = useMutation({
-    mutationFn: () => api.post<Reminder>('/reminders', { title, dueDate, repeat, notes }),
+  const saveReminder = useMutation({
+    mutationFn: async () => {
+      if (shareScope.kind === 'connection') {
+        return api.post(`/shared/${shareScope.spaceId}/reminders`, {
+          title: title.trim(),
+          dueDate,
+          repeat: 'NONE' as const,
+          notes: notes || undefined,
+        });
+      }
+      return api.post<Reminder>('/reminders', { title, dueDate, repeat, notes });
+    },
     onSuccess: () => {
       setTitle('');
       setNotes('');
       invalidate();
-      toast.success('Reminder saved');
+      toast.success(shareScope.kind === 'connection' ? 'Shared reminder saved' : 'Reminder saved');
     },
   });
 
@@ -505,11 +542,6 @@ function RemindersTab() {
     onSuccess: () => { invalidate(); toast.success('Reminder removed'); },
   });
 
-  const addSharedReminder = useMutation({
-    mutationFn: ({ spaceId, reminderTitle, reminderDueDate }: { spaceId: string; reminderTitle: string; reminderDueDate: string }) =>
-      api.post(`/shared/${spaceId}/reminders`, { title: reminderTitle, dueDate: reminderDueDate, repeat: 'NONE' as const }),
-    onSuccess: () => { invalidate(); toast.success('Shared reminder saved'); },
-  });
 
   const deleteSharedReminder = useMutation({
     mutationFn: ({ spaceId, id }: { spaceId: string; id: string }) =>
@@ -521,6 +553,12 @@ function RemindersTab() {
     <div className="space-y-4">
       <section className="bg-white rounded-2xl border shadow-sm p-4 space-y-3">
         <h2 className="font-semibold flex items-center gap-2"><Bell size={18} className="text-brand-600" /> New reminder</h2>
+        <ShareScopePicker
+          feature="reminders"
+          value={shareScope}
+          onChange={setShareScope}
+          membersCount={members.length}
+        />
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -542,8 +580,8 @@ function RemindersTab() {
           className="w-full px-3 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-500"
         />
         <button
-          onClick={() => title.trim() && addReminder.mutate()}
-          disabled={!title.trim() || addReminder.isPending}
+          onClick={() => title.trim() && saveReminder.mutate()}
+          disabled={!title.trim() || saveReminder.isPending}
           className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
         >
           Save reminder
@@ -600,54 +638,9 @@ function RemindersTab() {
         )}
       </section>
 
-      {sharedGroups.map((group) => {
-        const draft = sharedDrafts[group.spaceId] || { title: '', dueDate: todayISO() };
-        return (
+      {sharedGroups.map((group) => (
           <section key={group.spaceId} className="bg-violet-50 border border-violet-200 rounded-2xl p-4 space-y-3">
             <h3 className="font-semibold text-violet-900">Shared reminders with {group.partnerName}</h3>
-            <div className="flex flex-wrap gap-2">
-              <input
-                value={draft.title}
-                onChange={(e) =>
-                  setSharedDrafts((prev) => ({
-                    ...prev,
-                    [group.spaceId]: { ...draft, title: e.target.value },
-                  }))
-                }
-                placeholder="Shared reminder..."
-                className="flex-1 min-w-[160px] px-3 py-2 border rounded-lg text-sm bg-white"
-              />
-              <input
-                type="date"
-                value={draft.dueDate}
-                onChange={(e) =>
-                  setSharedDrafts((prev) => ({
-                    ...prev,
-                    [group.spaceId]: { ...draft, dueDate: e.target.value },
-                  }))
-                }
-                className="px-3 py-2 border rounded-lg text-sm bg-white"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (!draft.title.trim()) return;
-                  addSharedReminder.mutate({
-                    spaceId: group.spaceId,
-                    reminderTitle: draft.title.trim(),
-                    reminderDueDate: draft.dueDate,
-                  });
-                  setSharedDrafts((prev) => ({
-                    ...prev,
-                    [group.spaceId]: { title: '', dueDate: todayISO() },
-                  }));
-                }}
-                disabled={!draft.title.trim()}
-                className="px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
-              >
-                Add shared
-              </button>
-            </div>
             {group.reminders.length === 0 ? (
               <p className="text-sm text-violet-600/70">No shared reminders yet.</p>
             ) : (
@@ -671,8 +664,7 @@ function RemindersTab() {
               </div>
             )}
           </section>
-        );
-      })}
+      ))}
     </div>
   );
 }

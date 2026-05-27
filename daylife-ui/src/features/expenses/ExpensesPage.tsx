@@ -94,33 +94,6 @@ export function ExpensesPage() {
     },
   });
 
-  const addSharedExpense = useMutation({
-    mutationFn: ({
-      spaceId,
-      amount,
-      description,
-    }: {
-      spaceId: string;
-      amount: string;
-      description: string;
-    }) =>
-      api.post(`/shared/${spaceId}/expenses`, {
-        amount: parseFloat(amount),
-        description,
-        expenseDate: viewDate,
-        categoryId: 'cat-other',
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['shared-expenses'] });
-      queryClient.invalidateQueries({ queryKey: ['shared-summary'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      toast.success('Shared expense logged');
-    },
-    onError: (err: Error) => toast.error(err.message),
-  });
-
-  const [sharedDrafts, setSharedDrafts] = useState<Record<string, { amount: string; description: string }>>({});
-
   const expenses = data?.data ?? [];
   const total = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
   const sharedTotal = sharedGroups.reduce((sum, g) => sum + parseFloat(g.total), 0);
@@ -149,9 +122,9 @@ export function ExpensesPage() {
           </Link>
           <button
           onClick={() => { setEditExpense(null); setModalOpen(true); }}
-          className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium"
         >
-          <Plus size={16} /> {expenseShareConnections.length > 0 ? 'Personal only' : 'Log expense'}
+          <Plus size={16} /> Log expense
         </button>
         </div>
       </div>
@@ -189,64 +162,18 @@ export function ExpensesPage() {
 
       {sharedGroups.length > 0 && (
         <div className="px-4 py-3 rounded-xl bg-violet-100/80 border border-violet-200 text-sm text-violet-900">
-          <p className="font-medium">Money with your partner goes here — not in &quot;Personal only&quot;</p>
-          <p className="text-violet-700 mt-1">Both of you add in the purple box below. That is what the other person sees.</p>
+          <p className="font-medium">Shared expenses with your connections</p>
+          <p className="text-violet-700 mt-1">Use Log expense and pick Share to add new shared spending.</p>
         </div>
       )}
 
       {sharedGroups.length > 0 && (
         <div className="space-y-4">
-          {sharedGroups.map((group) => {
-            const draft = sharedDrafts[group.spaceId] || { amount: '', description: '' };
-            return (
+          {sharedGroups.map((group) => (
               <section key={group.spaceId} className="bg-violet-50 border border-violet-200 rounded-2xl p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <h2 className="font-semibold text-violet-900">Shared with {group.partnerName}</h2>
                   <span className="text-sm font-bold tabular-nums text-violet-800">{formatMoney(group.total)}</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <input
-                    value={draft.amount}
-                    onChange={(e) =>
-                      setSharedDrafts((prev) => ({
-                        ...prev,
-                        [group.spaceId]: { ...draft, amount: e.target.value },
-                      }))
-                    }
-                    placeholder="Amount"
-                    inputMode="decimal"
-                    className="w-28 px-3 py-2 border rounded-lg text-sm bg-white"
-                  />
-                  <input
-                    value={draft.description}
-                    onChange={(e) =>
-                      setSharedDrafts((prev) => ({
-                        ...prev,
-                        [group.spaceId]: { ...draft, description: e.target.value },
-                      }))
-                    }
-                    placeholder="What was it for?"
-                    className="flex-1 min-w-[160px] px-3 py-2 border rounded-lg text-sm bg-white"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!draft.amount.trim()) return;
-                      addSharedExpense.mutate({
-                        spaceId: group.spaceId,
-                        amount: draft.amount,
-                        description: draft.description,
-                      });
-                      setSharedDrafts((prev) => ({
-                        ...prev,
-                        [group.spaceId]: { amount: '', description: '' },
-                      }));
-                    }}
-                    disabled={!draft.amount.trim() || addSharedExpense.isPending}
-                    className="px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
-                  >
-                    Add shared
-                  </button>
                 </div>
                 {group.expenses.length === 0 ? (
                   <p className="text-sm text-violet-600/70">No shared expenses on this day yet.</p>
@@ -273,8 +200,7 @@ export function ExpensesPage() {
                   </div>
                 )}
               </section>
-            );
-          })}
+          ))}
           {sharedTotal > 0 && (
             <p className="text-xs text-violet-700 text-right">
               Shared day total: {formatMoney(sharedTotal.toFixed(2))}
@@ -295,7 +221,7 @@ export function ExpensesPage() {
         <div className="text-center py-16 text-gray-400">
           <p>No expenses on this day</p>
           {expenseShareConnections.some((c) => c.status === 'active') && (
-            <p className="text-sm mt-2 text-violet-600">Use the purple shared box above for partner spending</p>
+            <p className="text-sm mt-2 text-violet-600">Tap Log expense and choose Share to add partner spending</p>
           )}
         </div>
       ) : expenses.length === 0 ? (

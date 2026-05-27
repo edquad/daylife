@@ -16,9 +16,9 @@ import { useDateStore } from '../../lib/dateStore';
 import { formatDayHeading, formatMoney, todayISO } from '../../lib/format';
 import { PersonDayColumn } from '../../components/PersonDayColumn';
 import { SharedDayColumn } from '../../components/SharedDayColumn';
-import { VisibilityToggle } from '../../components/VisibilityToggle';
+import { ShareScopePicker } from '../../components/ShareScopePicker';
+import type { ShareScope } from '../../lib/shareScope';
 import { defaultVisibility } from '../../lib/privacy';
-import type { ItemVisibility } from '../../lib/privacy';
 import { PageHeader, DaySection } from '../../components/PageHeader';
 import {
   AlertCircle,
@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { AREA_COLORS, AREA_LABELS, memberGridClass } from '../../lib/utils';
 import { SharedFeatureLinks } from '../../components/SharedFeatureLinks';
+import { TaskFormModal } from '../tasks/TaskFormModal';
 
 interface PersonSummary {
   userId: string;
@@ -126,28 +127,36 @@ export function DashboardPage() {
   const sharedNoteGroups = sharedSummary?.noteGroups ?? [];
 
   const addNote = useMutation({
-    mutationFn: (payload: { content: string; visibility: ItemVisibility }) =>
-      api.post('/notes', {
+    mutationFn: async (payload: { content: string; scope: ShareScope }) => {
+      if (payload.scope.kind === 'connection') {
+        return api.post(`/shared/${payload.scope.spaceId}/notes`, {
+          content: payload.content,
+          noteDate: selectedDate,
+        });
+      }
+      return api.post('/notes', {
         content: payload.content,
         area: 'PERSONAL',
         noteDate: selectedDate,
-        visibility: payload.visibility,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-  });
-
-  const addSharedNote = useMutation({
-    mutationFn: ({ spaceId, content }: { spaceId: string; content: string }) =>
-      api.post(`/shared/${spaceId}/notes`, { content, noteDate: selectedDate }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['shared-summary'] }),
+        visibility: payload.scope.kind === 'personal' && members.length > 1
+          ? payload.scope.visibility
+          : 'SHARED',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['shared-summary'] });
+    },
   });
 
   const [dayNote, setDayNote] = React.useState('');
   const [showNote, setShowNote] = React.useState(false);
-  const [sharedNoteDrafts, setSharedNoteDrafts] = React.useState<Record<string, string>>({});
-  const [noteVisibility, setNoteVisibility] = React.useState<ItemVisibility>(
-    defaultVisibility(members.length),
-  );
+  const [noteShareScope, setNoteShareScope] = React.useState<ShareScope>({ kind: 'personal', visibility: 'SHARED' });
+  const [taskModalOpen, setTaskModalOpen] = React.useState(false);
+  const [taskModalDefaults, setTaskModalDefaults] = React.useState<{
+    defaultAssigneeId?: string;
+    defaultShareScope?: ShareScope;
+  }>({});
 
   if (isLoading) {
     return (
@@ -234,6 +243,13 @@ export function DashboardPage() {
                   selectedDate={selectedDate}
                   highlight={member.id === user?.id}
                   compact={member.id === user?.id && !isMultiMember}
+                  onAddTask={() => {
+                    setTaskModalDefaults({
+                      defaultAssigneeId: member.id,
+                      defaultShareScope: { kind: 'personal', visibility: defaultVisibility(members.length) },
+                    });
+                    setTaskModalOpen(true);
+                  }}
                 />
               );
             })}
@@ -244,6 +260,12 @@ export function DashboardPage() {
               partnerName={col.partnerName}
               tasks={col.tasks}
               selectedDate={selectedDate}
+              onAddTask={() => {
+                setTaskModalDefaults({
+                  defaultShareScope: { kind: 'connection', spaceId: col.spaceId },
+                });
+                setTaskModalOpen(true);
+              }}
             />
           ))}
         </div>
@@ -477,19 +499,19 @@ export function DashboardPage() {
               rows={2}
               className="w-full mt-3 px-3 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand-500"
             />
-            {isMultiMember && (
-              <div className="mt-2">
-                <VisibilityToggle value={noteVisibility} onChange={setNoteVisibility} compact />
-              </div>
-            )}
+            <div className="mt-2">
+              <ShareScopePicker
+                feature="notes"
+                value={noteShareScope}
+                onChange={setNoteShareScope}
+                membersCount={members.length}
+              />
+            </div>
             <button
               type="button"
               onClick={() => {
                 if (dayNote.trim()) {
-                  addNote.mutate({
-                    content: dayNote.trim(),
-                    visibility: isMultiMember ? noteVisibility : 'SHARED',
-                  });
+                  addNote.mutate({ content: dayNote.trim(), scope: noteShareScope });
                   setDayNote('');
                 }
               }}
@@ -508,35 +530,27 @@ export function DashboardPage() {
               </div>
             )}
             {sharedNoteGroups.map((group) => (
-              <div key={group.spaceId} className="mt-3 pt-3 border-t border-violet-100">
-                <p className="text-xs text-violet-700 mb-2">Note with {group.partnerName}</p>
-                <textarea
-                  value={sharedNoteDrafts[group.spaceId] || ''}
-                  onChange={(e) =>
-                    setSharedNoteDrafts((prev) => ({ ...prev, [group.spaceId]: e.target.value }))
-                  }
-                  placeholder={`For you & ${group.partnerName}...`}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-violet-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-violet-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const content = (sharedNoteDrafts[group.spaceId] || '').trim();
-                    if (!content) return;
-                    addSharedNote.mutate({ spaceId: group.spaceId, content });
-                    setSharedNoteDrafts((prev) => ({ ...prev, [group.spaceId]: '' }));
-                  }}
-                  disabled={!(sharedNoteDrafts[group.spaceId] || '').trim()}
-                  className="mt-2 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-medium disabled:opacity-50"
-                >
-                  Save shared note
-                </button>
+              <div key={group.spaceId} className="mt-3 pt-3 border-t border-violet-100 space-y-2">
+                <p className="text-xs font-medium text-violet-700">Shared with {group.partnerName}</p>
+                {group.notes.map((note) => (
+                  <div key={note.id} className="p-2.5 bg-violet-50 rounded-lg text-sm text-violet-900">
+                    {note.content}
+                  </div>
+                ))}
               </div>
             ))}
           </div>
         )}
       </section>
+      {taskModalOpen && (
+        <TaskFormModal
+          members={members}
+          defaultDueDate={selectedDate}
+          defaultAssigneeId={taskModalDefaults.defaultAssigneeId}
+          defaultShareScope={taskModalDefaults.defaultShareScope}
+          onClose={() => setTaskModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

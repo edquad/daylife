@@ -1,24 +1,37 @@
 import React, { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, Task, User } from '../../lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, Connection, Task, User } from '../../lib/api';
 import { todayISO } from '../../lib/format';
 import { useAuth } from '../auth/AuthContext';
 import { toast } from '../../components/Toaster';
 import { X } from 'lucide-react';
-import { VisibilityToggle } from '../../components/VisibilityToggle';
+import { ShareScopePicker } from '../../components/ShareScopePicker';
 import { defaultVisibility } from '../../lib/privacy';
-import type { ItemVisibility } from '../../lib/privacy';
+import type { ShareScope } from '../../lib/shareScope';
+import { activeShareConnections, connectionLabel, findConnectionBySpaceId } from '../../lib/shareScope';
+import { useGitHubSync } from '../sync/GitHubSyncContext';
 
 interface Props {
   task?: Task | null;
   members: User[];
   defaultArea?: Task['area'];
   defaultDueDate?: string;
+  defaultAssigneeId?: string;
+  defaultShareScope?: ShareScope;
   onClose: () => void;
 }
 
-export function TaskFormModal({ task, members, defaultArea, defaultDueDate, onClose }: Props) {
+export function TaskFormModal({
+  task,
+  members,
+  defaultArea,
+  defaultDueDate,
+  defaultAssigneeId,
+  defaultShareScope,
+  onClose,
+}: Props) {
   const { user } = useAuth();
+  const { cloudReady } = useGitHubSync();
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
@@ -26,14 +39,31 @@ export function TaskFormModal({ task, members, defaultArea, defaultDueDate, onCl
   const [priority, setPriority] = useState<Task['priority']>(task?.priority || 'MEDIUM');
   const [status, setStatus] = useState<Task['status']>(task?.status || 'TODO');
   const [dueDate, setDueDate] = useState(task?.dueDate?.slice(0, 10) || defaultDueDate || todayISO());
-  const [assigneeId, setAssigneeId] = useState(task?.assignee?.id || user?.id || members[0]?.id || '');
-  const [visibility, setVisibility] = useState<ItemVisibility>(
-    task?.visibility || defaultVisibility(members.length),
+  const [assigneeId, setAssigneeId] = useState(
+    task?.assignee?.id || defaultAssigneeId || user?.id || members[0]?.id || '',
+  );
+  const [shareScope, setShareScope] = useState<ShareScope>(
+    defaultShareScope || { kind: 'personal', visibility: defaultVisibility(members.length) },
   );
   const [loading, setLoading] = useState(false);
 
+  const { data: connections = [] } = useQuery<Connection[]>({
+    queryKey: ['connections'],
+    queryFn: () => api.get('/connections'),
+    enabled: cloudReady,
+  });
+
   const save = useMutation({
     mutationFn: async () => {
+      if (shareScope.kind === 'connection' && !task) {
+        return api.post<Task>(`/shared/${shareScope.spaceId}/tasks`, {
+          title: title.trim(),
+          area,
+          dueDate: dueDate || null,
+          priority,
+        });
+      }
+
       const body = {
         title,
         description: description || undefined,
@@ -42,7 +72,10 @@ export function TaskFormModal({ task, members, defaultArea, defaultDueDate, onCl
         status,
         dueDate: dueDate || null,
         assigneeId: assigneeId || null,
-        visibility: members.length > 1 ? visibility : 'SHARED',
+        visibility:
+          shareScope.kind === 'personal' && members.length > 1
+            ? shareScope.visibility
+            : 'SHARED',
       };
       if (task) return api.put<Task>(`/tasks/${task.id}`, body);
       return api.post<Task>('/tasks', body);
@@ -50,15 +83,28 @@ export function TaskFormModal({ task, members, defaultArea, defaultDueDate, onCl
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      toast.success(task ? 'Task updated' : 'Task created');
+      queryClient.invalidateQueries({ queryKey: ['shared-summary'] });
+      if (shareScope.kind === 'connection' && !task) {
+        const conn = findConnectionBySpaceId(connections, shareScope.spaceId);
+        toast.success(conn ? `Shared with ${connectionLabel(conn)}` : 'Shared task created');
+      } else {
+        toast.success(task ? 'Task updated' : 'Task created');
+      }
       onClose();
     },
-    onError: (err: any) => toast.error(err.message || 'Failed to save'),
+    onError: (err: Error) => toast.error(err.message || 'Failed to save'),
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+    if (shareScope.kind === 'connection' && !task) {
+      const allowed = activeShareConnections(connections, 'tasks');
+      if (!allowed.some((c) => c.sharedSpaceId === shareScope.spaceId)) {
+        toast.error('Pick someone to share with');
+        return;
+      }
+    }
     setLoading(true);
     try {
       await save.mutateAsync();
@@ -66,6 +112,8 @@ export function TaskFormModal({ task, members, defaultArea, defaultDueDate, onCl
       setLoading(false);
     }
   };
+
+  const isSharedCreate = !task && shareScope.kind === 'connection';
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
@@ -76,16 +124,26 @@ export function TaskFormModal({ task, members, defaultArea, defaultDueDate, onCl
           <button onClick={onClose}><X size={20} /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          {!task && (
+            <ShareScopePicker
+              feature="tasks"
+              value={shareScope}
+              onChange={setShareScope}
+              membersCount={members.length}
+            />
+          )}
           <div>
             <label className="block text-sm font-medium mb-1">Title</label>
             <input value={title} onChange={(e) => setTitle(e.target.value)} required
               className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand-500" />
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Notes</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2}
-              className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand-500" />
-          </div>
+          {!isSharedCreate && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Notes</label>
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2}
+                className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium mb-1">Area</label>
@@ -110,17 +168,16 @@ export function TaskFormModal({ task, members, defaultArea, defaultDueDate, onCl
               <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg" />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Assign to</label>
-              <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
-                <option value="">Anyone</option>
-                {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </div>
+            {!isSharedCreate && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Assign to</label>
+                <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className="w-full px-3 py-2 border rounded-lg">
+                  <option value="">Anyone</option>
+                  {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </div>
+            )}
           </div>
-          {members.length > 1 && (
-            <VisibilityToggle value={visibility} onChange={setVisibility} />
-          )}
           {task && (
             <div>
               <label className="block text-sm font-medium mb-1">Status</label>
@@ -132,8 +189,10 @@ export function TaskFormModal({ task, members, defaultArea, defaultDueDate, onCl
             </div>
           )}
           <button type="submit" disabled={loading}
-            className="w-full py-2.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 font-medium">
-            {loading ? 'Saving...' : task ? 'Save changes' : 'Create task'}
+            className={`w-full py-2.5 text-white rounded-lg disabled:opacity-50 font-medium ${
+              isSharedCreate ? 'bg-violet-600 hover:bg-violet-700' : 'bg-brand-600 hover:bg-brand-700'
+            }`}>
+            {loading ? 'Saving...' : task ? 'Save changes' : isSharedCreate ? 'Create shared task' : 'Create task'}
           </button>
         </form>
       </div>

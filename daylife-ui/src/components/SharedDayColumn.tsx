@@ -1,23 +1,19 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Circle, Trash2, Users } from 'lucide-react';
+import { CheckCircle2, Circle, Plus, Trash2, Users } from 'lucide-react';
 import { api, Task } from '../lib/api';
 import { AREA_COLORS, AREA_LABELS, cn } from '../lib/utils';
-import { toast } from './Toaster';
-
-const AREA_OPTIONS: Task['area'][] = ['PERSONAL', 'WORK', 'HOME'];
 
 interface SharedDayColumnProps {
   spaceId: string;
   partnerName: string;
   tasks: Task[];
   selectedDate: string;
+  onAddTask?: () => void;
 }
 
-export function SharedDayColumn({ spaceId, partnerName, tasks, selectedDate }: SharedDayColumnProps) {
+export function SharedDayColumn({ spaceId, partnerName, tasks, selectedDate, onAddTask }: SharedDayColumnProps) {
   const queryClient = useQueryClient();
-  const [newTitle, setNewTitle] = useState('');
-  const [area, setArea] = useState<Task['area']>('PERSONAL');
 
   const pending = tasks.filter((t) => t.status !== 'DONE');
   const done = tasks.filter((t) => t.status === 'DONE');
@@ -30,17 +26,6 @@ export function SharedDayColumn({ spaceId, partnerName, tasks, selectedDate }: S
     queryClient.invalidateQueries({ queryKey: ['shared-summary'] });
   };
 
-  const addTask = useMutation({
-    mutationFn: (title: string) =>
-      api.post<Task>(`/shared/${spaceId}/tasks`, { title, area, dueDate: selectedDate }),
-    onSuccess: () => {
-      setNewTitle('');
-      invalidate();
-      toast.success(`Shared with ${partnerName}`);
-    },
-    onError: (err: Error) => toast.error(err.message),
-  });
-
   const toggleTask = useMutation({
     mutationFn: (id: string) => api.patch<Task>(`/shared/${spaceId}/tasks/${id}/toggle`),
     onSuccess: invalidate,
@@ -50,13 +35,6 @@ export function SharedDayColumn({ spaceId, partnerName, tasks, selectedDate }: S
     mutationFn: (id: string) => api.delete(`/shared/${spaceId}/tasks/${id}`),
     onSuccess: invalidate,
   });
-
-  const handleAdd = (e: React.FormEvent) => {
-    e.preventDefault();
-    const title = newTitle.trim();
-    if (!title) return;
-    addTask.mutate(title);
-  };
 
   const renderTask = (task: Task) => {
     const isDone = task.status === 'DONE';
@@ -130,23 +108,16 @@ export function SharedDayColumn({ spaceId, partnerName, tasks, selectedDate }: S
         )}
       </div>
 
-      <form onSubmit={handleAdd} className="p-2 border-t border-violet-100 bg-violet-50/40">
-        <div className="flex gap-2">
-          <input
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="Add shared task..."
-            className="flex-1 px-3 py-2.5 border border-violet-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-violet-500 bg-white"
-          />
-          <button
-            type="submit"
-            disabled={!newTitle.trim() || addTask.isPending}
-            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 active:scale-95 disabled:opacity-50 touch-manipulation"
-          >
-            Add
-          </button>
-        </div>
-      </form>
+      <div className="p-2 border-t border-violet-100 bg-violet-50/40">
+        <button
+          type="button"
+          onClick={onAddTask}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 active:scale-95 touch-manipulation"
+        >
+          <Plus size={16} />
+          Add task
+        </button>
+      </div>
     </section>
   );
 }

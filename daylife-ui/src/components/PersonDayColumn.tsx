@@ -1,11 +1,8 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Circle, Trash2 } from 'lucide-react';
+import { CheckCircle2, Circle, Plus, Trash2 } from 'lucide-react';
 import { api, Task, User } from '../lib/api';
 import { AREA_COLORS, AREA_LABELS, cn } from '../lib/utils';
-import { toast } from './Toaster';
-
-const AREA_OPTIONS: Task['area'][] = ['PERSONAL', 'WORK', 'HOME'];
 
 interface PersonDayColumnProps {
   person: User;
@@ -14,12 +11,11 @@ interface PersonDayColumnProps {
   showCompleted?: boolean;
   highlight?: boolean;
   compact?: boolean;
+  onAddTask?: () => void;
 }
 
-export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = true, highlight, compact }: PersonDayColumnProps) {
+export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = true, highlight, compact, onAddTask }: PersonDayColumnProps) {
   const queryClient = useQueryClient();
-  const [newTitle, setNewTitle] = useState('');
-  const [area, setArea] = useState<Task['area']>('PERSONAL');
 
   const pending = tasks.filter((t) => t.status !== 'DONE');
   const done = tasks.filter((t) => t.status === 'DONE');
@@ -32,22 +28,6 @@ export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = t
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
   };
 
-  const addTask = useMutation({
-    mutationFn: (title: string) =>
-      api.post<Task>('/tasks', {
-        title,
-        area,
-        dueDate: selectedDate,
-        assigneeId: person.id,
-        priority: 'MEDIUM',
-      }),
-    onSuccess: () => {
-      setNewTitle('');
-      invalidate();
-      toast.success(highlight ? 'Added to your list' : `Added for ${person.name}`);
-    },
-  });
-
   const toggleTask = useMutation({
     mutationFn: (id: string) => api.patch<Task>(`/tasks/${id}/toggle`),
     onSuccess: invalidate,
@@ -57,13 +37,6 @@ export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = t
     mutationFn: (id: string) => api.delete(`/tasks/${id}`),
     onSuccess: invalidate,
   });
-
-  const handleAdd = (e: React.FormEvent) => {
-    e.preventDefault();
-    const title = newTitle.trim();
-    if (!title) return;
-    addTask.mutate(title);
-  };
 
   const renderTask = (task: Task) => {
     const isDone = task.status === 'DONE';
@@ -159,41 +132,17 @@ export function PersonDayColumn({ person, tasks, selectedDate, showCompleted = t
         )}
       </div>
 
-      <form onSubmit={handleAdd} className={cn('border-t bg-gray-50/80', compact ? 'p-2 space-y-1.5' : 'p-3 space-y-2')}>
-        {!compact && (
-          <div className="flex flex-wrap gap-1">
-            {AREA_OPTIONS.map((a) => (
-              <button
-                key={a}
-                type="button"
-                onClick={() => setArea(a)}
-                className={cn(
-                  'text-[10px] px-2.5 py-1 rounded-full border transition-all touch-manipulation',
-                  area === a ? AREA_COLORS[a] + ' border-transparent' : 'bg-white text-gray-500 border-gray-200',
-                )}
-              >
-                {AREA_LABELS[a]}
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="flex gap-2">
-          <input
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="Add a task..."
-            className="flex-1 px-3 py-2.5 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-brand-500 bg-white"
-          />
-          <button
-            type="submit"
-            disabled={!newTitle.trim() || addTask.isPending}
-            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white active:scale-95 disabled:opacity-50 touch-manipulation"
-            style={{ backgroundColor: person.color }}
-          >
-            Add
-          </button>
-        </div>
-      </form>
+      <div className={cn('border-t bg-gray-50/80', compact ? 'p-2' : 'p-3')}>
+        <button
+          type="button"
+          onClick={onAddTask}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-white active:scale-95 touch-manipulation"
+          style={{ backgroundColor: person.color }}
+        >
+          <Plus size={16} />
+          Add task
+        </button>
+      </div>
     </section>
   );
 }
