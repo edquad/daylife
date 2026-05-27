@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   GitHubSyncConfig,
@@ -162,12 +162,16 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, [invalidateApp, accountRevision]);
 
+  const lastPullAtRef = useRef(0);
+
   useEffect(() => {
     if (!cloudReady) return;
     const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        pullFromGitHub().catch(() => undefined);
-      }
+      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - lastPullAtRef.current < 30000) return;
+      lastPullAtRef.current = now;
+      pullFromGitHub().catch(() => undefined);
     };
     window.addEventListener('focus', onVisible);
     document.addEventListener('visibilitychange', onVisible);

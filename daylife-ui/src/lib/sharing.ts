@@ -1,4 +1,4 @@
-import { loadGitHubConfig, isGitHubConfigured } from './githubSync';
+import { loadGitHubConfig, isGitHubConfigured, putGitHubJsonAtPath } from './githubSync';
 import { parseJsonText, uid } from './storage';
 import type {
   Task,
@@ -194,28 +194,8 @@ async function readGitHubJson<T>(path: string): Promise<{ data: T; sha?: string 
   return { data: parseJsonText<T>(decodeBase64Utf8(json.content)), sha: json.sha as string };
 }
 
-async function writeGitHubJson(path: string, data: unknown, sha?: string, message?: string): Promise<string> {
-  const config = loadGitHubConfig();
-  if (!isGitHubConfigured(config)) throw new Error('Cloud sync not available');
-  const url = `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${path}`;
-  const body: Record<string, string> = {
-    message: message || `Rozka update ${path}`,
-    content: encodeBase64Utf8(JSON.stringify(data, null, 2)),
-    branch: config.branch,
-  };
-  if (sha) body.sha = sha;
-  const res = await fetch(url, {
-    method: 'PUT',
-    headers: { ...authHeaders(config.token), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (res.status === 409) {
-    const latest = await readGitHubJson<unknown>(path);
-    return writeGitHubJson(path, data, latest?.sha, message);
-  }
-  if (!res.ok) throw new Error('Could not save to cloud');
-  const json = await res.json();
-  return json.content.sha as string;
+async function writeGitHubJson(path: string, data: unknown, _sha?: string, message?: string): Promise<string> {
+  return putGitHubJsonAtPath(path, data, message);
 }
 
 export async function fetchAccountUserProfile(

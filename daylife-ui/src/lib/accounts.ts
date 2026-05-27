@@ -1,4 +1,4 @@
-import { loadGitHubConfig, isGitHubConfigured } from './githubSync';
+import { loadGitHubConfig, isGitHubConfigured, putGitHubJsonAtPath } from './githubSync';
 import { parseJsonText, uid } from './storage';
 
 const ACCOUNT_ID_KEY = 'daylife_account_id';
@@ -64,29 +64,12 @@ async function fetchRegistry(): Promise<{ registry: AccountRegistry; sha?: strin
   return { registry, sha: json.sha as string };
 }
 
-async function saveRegistry(registry: AccountRegistry, sha?: string): Promise<void> {
-  const config = loadGitHubConfig();
-  if (!isGitHubConfigured(config)) {
+async function saveRegistry(registry: AccountRegistry, _sha?: string): Promise<void> {
+  if (!isGitHubConfigured(loadGitHubConfig())) {
     throw new Error('Cloud sync not available');
   }
   const stamped: AccountRegistry = { ...registry, updatedAt: new Date().toISOString() };
-  const url = `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${REGISTRY_PATH}`;
-  const body: Record<string, string> = {
-    message: `Rozka accounts ${stamped.updatedAt}`,
-    content: encodeBase64Utf8(JSON.stringify(stamped, null, 2)),
-    branch: config.branch,
-  };
-  if (sha) body.sha = sha;
-  const res = await fetch(url, {
-    method: 'PUT',
-    headers: { ...authHeaders(config.token), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (res.status === 409) {
-    const latest = await fetchRegistry();
-    return saveRegistry({ ...latest.registry, ...stamped }, latest.sha);
-  }
-  if (!res.ok) throw new Error('Could not save account');
+  await putGitHubJsonAtPath(REGISTRY_PATH, stamped, 'Rozka accounts');
 }
 
 export async function resolveAccountId(username: string): Promise<string | null> {

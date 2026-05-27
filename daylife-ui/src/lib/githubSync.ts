@@ -4,6 +4,23 @@ import { getActiveAccountId, accountCloudPath } from './accounts';
 import { mergeConnections } from './sharing';
 
 const CONFIG_KEY = 'daylife_github_sync';
+const MAX_CONFLICT_RETRIES = 5;
+
+/** Serialize GitHub writes so concurrent saves do not 409-loop each other. */
+let cloudWriteQueue: Promise<unknown> = Promise.resolve();
+
+export function runCloudWrite<T>(task: () => Promise<T>): Promise<T> {
+  const next = cloudWriteQueue.then(task, task);
+  cloudWriteQueue = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /** Built-in cloud storage — always on, no user setup. */
 function resolveCloudPath(): string {
@@ -129,19 +146,42 @@ export async function fetchFromGitHub(config: GitHubSyncConfig): Promise<RemoteF
   return { data: normalizeAppData(parsed), sha: json.sha as string, needsRepair };
 }
 
-export async function pushToGitHub(config: GitHubSyncConfig, data: AppData, sha?: string): Promise<string> {
+async function fetchShaForPath(config: GitHubSyncConfig, path: string): Promise<string | undefined> {
   const owner = config.owner.trim();
   const repo = config.repo.trim();
-  const path = config.path.trim() || 'data/daylife.json';
   const branch = config.branch.trim() || 'main';
-  const stamped: AppData = { ...data, updatedAt: data.updatedAt || new Date().toISOString() };
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${encodeURIComponent(branch)}`;
+  const res = await fetch(url, { headers: authHeaders(config.token) });
+  if (res.status === 404) return undefined;
+  if (!res.ok) return undefined;
+  const json = await res.json();
+  return json.sha as string;
+}
+
+/** Low-level GitHub Contents PUT with bounded conflict retries. */
+async function putGitHubContents(
+  config: GitHubSyncConfig,
+  path: string,
+  payload: unknown,
+  message: string,
+  sha?: string,
+  attempt = 0,
+): Promise<string> {
+  const owner = config.owner.trim();
+  const repo = config.repo.trim();
+  const branch = config.branch.trim() || 'main';
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+  let fileSha = sha;
+  if (attempt > 0 || !fileSha) {
+    fileSha = await fetchShaForPath(config, path);
+  }
+
   const body: Record<string, string> = {
-    message: `Rozka sync ${stamped.updatedAt}`,
-    content: encodeBase64Utf8(JSON.stringify(stamped, null, 2)),
+    message,
+    content: encodeBase64Utf8(JSON.stringify(payload, null, 2)),
     branch,
   };
-  if (sha) body.sha = sha;
+  if (fileSha) body.sha = fileSha;
 
   const res = await fetch(url, {
     method: 'PUT',
@@ -149,18 +189,86 @@ export async function pushToGitHub(config: GitHubSyncConfig, data: AppData, sha?
     body: JSON.stringify(body),
   });
 
-  if (!res.ok) {
-    if (res.status === 409) {
-      const remote = await fetchFromGitHub(config);
-      if (remote) {
-        return pushToGitHub(config, data, remote.sha);
-      }
+  if (res.status === 409) {
+    if (attempt >= MAX_CONFLICT_RETRIES) {
+      throw new Error('Cloud sync conflict — wait a few seconds, then tap Refresh from cloud in Settings');
     }
+    await sleep(300 * (attempt + 1));
+    return putGitHubContents(config, path, payload, message, undefined, attempt + 1);
+  }
+
+  if (!res.ok) {
     throw new Error(res.status === 401 ? 'Cloud sync auth failed' : `Could not save cloud data (${res.status})`);
   }
 
   const json = await res.json();
   return json.content.sha as string;
+}
+
+/** Write any JSON blob to the cloud repo (shared spaces, inbox, registry, etc.). */
+export async function putGitHubJsonAtPath(path: string, data: unknown, message?: string): Promise<string> {
+  return runCloudWrite(async () => {
+    const config = loadGitHubConfig();
+    if (!isGitHubConfigured(config)) throw new Error('Cloud sync not available');
+    return putGitHubContents(config, path, data, message || `Rozka update ${path}`);
+  });
+}
+
+async function pushToGitHubOnce(
+  config: GitHubSyncConfig,
+  data: AppData,
+  sha?: string,
+  attempt = 0,
+): Promise<string> {
+  const path = config.path.trim() || 'data/daylife.json';
+  const stamped: AppData = { ...data, updatedAt: data.updatedAt || new Date().toISOString() };
+
+  const owner = config.owner.trim();
+  const repo = config.repo.trim();
+  const branch = config.branch.trim() || 'main';
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+  let fileSha = sha ?? config.lastSha;
+  if (attempt > 0) {
+    fileSha = await fetchShaForPath(config, path);
+  }
+
+  const body: Record<string, string> = {
+    message: `Rozka sync ${stamped.updatedAt}`,
+    content: encodeBase64Utf8(JSON.stringify(stamped, null, 2)),
+    branch,
+  };
+  if (fileSha) body.sha = fileSha;
+
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { ...authHeaders(config.token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (res.status === 409) {
+    if (attempt >= MAX_CONFLICT_RETRIES) {
+      throw new Error('Cloud sync conflict — wait a few seconds, then tap Refresh from cloud in Settings');
+    }
+    const remote = await fetchFromGitHub(config);
+    if (!remote) {
+      throw new Error('Could not resolve cloud sync conflict');
+    }
+    const merged = mergeAppData(stamped, remote.data);
+    saveDataLocal(merged);
+    await sleep(300 * (attempt + 1));
+    return pushToGitHubOnce(config, merged, remote.sha, attempt + 1);
+  }
+
+  if (!res.ok) {
+    throw new Error(res.status === 401 ? 'Cloud sync auth failed' : `Could not save cloud data (${res.status})`);
+  }
+
+  const json = await res.json();
+  return json.content.sha as string;
+}
+
+export async function pushToGitHub(config: GitHubSyncConfig, data: AppData, sha?: string): Promise<string> {
+  return runCloudWrite(() => pushToGitHubOnce(config, data, sha));
 }
 
 export function pickNewerData(local: AppData, remote: AppData): 'local' | 'remote' {
@@ -182,43 +290,49 @@ export function mergeAppData(local: AppData, remote: AppData): AppData {
 
 /** Push local data to cloud immediately (used after accepting a share invite). */
 export async function flushCloudSyncNow(): Promise<void> {
-  const config = loadGitHubConfig();
-  if (!isGitHubConfigured(config)) return;
-  const local = loadData();
-  const remote = await fetchFromGitHub(config);
-  const merged = remote ? mergeAppData(local, remote.data) : local;
-  saveDataLocal(merged);
-  const sha = await pushToGitHub(config, merged, remote?.sha ?? config.lastSha);
-  saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
+  return runCloudWrite(async () => {
+    const config = loadGitHubConfig();
+    if (!isGitHubConfigured(config)) return;
+    const local = loadData();
+    const remote = await fetchFromGitHub(config);
+    const merged = remote ? mergeAppData(local, remote.data) : local;
+    saveDataLocal(merged);
+    const sha = await pushToGitHubOnce(config, merged, remote?.sha ?? config.lastSha);
+    saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
+  });
 }
 
 export async function pullAndMerge(config: GitHubSyncConfig): Promise<'local' | 'remote' | 'none'> {
-  const remote = await fetchFromGitHub(config);
-  if (!remote) return 'none';
+  return runCloudWrite(async () => {
+    const remote = await fetchFromGitHub(config);
+    if (!remote) return 'none';
 
-  const local = loadData();
-  const merged = mergeAppData(local, remote.data);
-  saveDataLocal(merged);
+    const local = loadData();
+    const merged = mergeAppData(local, remote.data);
+    saveDataLocal(merged);
 
-  saveGitHubConfig({ lastSha: remote.sha, lastSyncedAt: new Date().toISOString() });
-  return pickNewerData(local, remote.data);
+    saveGitHubConfig({ lastSha: remote.sha, lastSyncedAt: new Date().toISOString() });
+    return pickNewerData(local, remote.data);
+  });
 }
 
 export async function syncNow(config: GitHubSyncConfig): Promise<void> {
-  const remote = await fetchFromGitHub(config);
-  const local = loadData();
+  return runCloudWrite(async () => {
+    const remote = await fetchFromGitHub(config);
+    const local = loadData();
 
-  if (!remote) {
-    const sha = await pushToGitHub(config, local);
+    if (!remote) {
+      const sha = await pushToGitHubOnce(config, local);
+      saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
+      return;
+    }
+
+    const merged = mergeAppData(local, remote.data);
+    saveDataLocal(merged);
+
+    const sha = await pushToGitHubOnce(config, merged, remote.sha);
     saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
-    return;
-  }
-
-  const merged = mergeAppData(local, remote.data);
-  saveDataLocal(merged);
-
-  const sha = await pushToGitHub(config, merged, remote.sha);
-  saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
+  });
 }
 
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -227,19 +341,20 @@ let pushInFlight = false;
 export function scheduleGitHubPush(config: GitHubSyncConfig): void {
   if (!isGitHubConfigured(config)) return;
   if (pushTimer) clearTimeout(pushTimer);
-  pushTimer = setTimeout(async () => {
+  pushTimer = setTimeout(() => {
     if (pushInFlight) return;
     pushInFlight = true;
-    try {
-      const local = loadData();
-      const cfg = loadGitHubConfig();
-      const sha = await pushToGitHub(cfg, local, cfg.lastSha);
-      saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
-      window.dispatchEvent(new CustomEvent('daylife-sync', { detail: { status: 'synced' } }));
-    } catch (err) {
-      window.dispatchEvent(new CustomEvent('daylife-sync', { detail: { status: 'error', message: (err as Error).message } }));
-    } finally {
-      pushInFlight = false;
-    }
-  }, 1500);
+    syncNow(loadGitHubConfig())
+      .then(() => {
+        window.dispatchEvent(new CustomEvent('daylife-sync', { detail: { status: 'synced' } }));
+      })
+      .catch((err) => {
+        window.dispatchEvent(
+          new CustomEvent('daylife-sync', { detail: { status: 'error', message: (err as Error).message } }),
+        );
+      })
+      .finally(() => {
+        pushInFlight = false;
+      });
+  }, 2000);
 }

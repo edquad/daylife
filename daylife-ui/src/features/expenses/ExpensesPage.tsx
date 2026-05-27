@@ -18,7 +18,7 @@ interface ExpensesResponse {
 export function ExpensesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const { pullFromGitHub, cloudReady } = useGitHubSync();
+  const { cloudReady } = useGitHubSync();
   const selectedDate = useDateStore((s) => s.selectedDate);
   const dateParam = searchParams.get('date');
   const viewDate = dateParam || selectedDate;
@@ -66,17 +66,6 @@ export function ExpensesPage() {
   const pendingExpenseShare = connections.find(
     (c) => c.features.includes('expenses') && c.status === 'pending_sent' && c.initiatedByMe,
   );
-
-  useEffect(() => {
-    if (!cloudReady) return;
-    pullFromGitHub()
-      .then(() => {
-        queryClient.invalidateQueries({ queryKey: ['connections'] });
-        queryClient.invalidateQueries({ queryKey: ['shared-expenses'] });
-        queryClient.invalidateQueries({ queryKey: ['shared-summary'] });
-      })
-      .catch(() => undefined);
-  }, [cloudReady, pullFromGitHub, queryClient]);
 
   const sharedGroups = sharedExpenses?.groups ?? [];
 

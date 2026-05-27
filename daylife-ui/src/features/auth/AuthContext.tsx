@@ -4,7 +4,7 @@ import { loadData, resolveHouseholdType, beginFreshSignup, endFreshSignup, clear
 import { clearUnlock, markUserUnlocked } from '../../lib/pin';
 import { queryClient } from '../../lib/queryClient';
 import { createAccount, resolveAccountId, setActiveAccountId, getActiveAccountId, normalizeUsername } from '../../lib/accounts';
-import { loadGitHubConfig, saveGitHubConfig, syncNow } from '../../lib/githubSync';
+import { loadGitHubConfig, saveGitHubConfig, syncNow, flushCloudSyncNow } from '../../lib/githubSync';
 
 export interface SignupInput {
   username: string;
@@ -136,13 +136,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       newPin,
     });
 
+    await flushCloudSyncNow();
+
+    const res = await api.post<{ token: string; user: User }>('/auth/login', {
+      username: normalizeUsername(username),
+      pin: newPin,
+    });
+    api.setToken(res.token);
+    markUserUnlocked(res.user.id);
+    setUser(res.user);
+    refreshFromStorage();
+
     try {
-      await syncNow(loadGitHubConfig());
+      await api.post('/connections/sync-inbox');
     } catch {
-      /* PIN saved locally; cloud push will retry */
+      /* inbox sync is best-effort */
     }
 
-    await login({ username, pin: newPin });
+    await queryClient.invalidateQueries();
   };
 
   const login = async ({ username, pin }: LoginInput) => {
