@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, Expense, User } from '../../lib/api';
+import { api, Connection, Expense, User } from '../../lib/api';
 import { formatMoney, formatDate, formatDayHeading } from '../../lib/format';
 import { useDateStore } from '../../lib/dateStore';
-import { Plus, Search, Trash2, HandCoins } from 'lucide-react';
+import { Plus, Search, Trash2, HandCoins, Users } from 'lucide-react';
 import { supportsExpenseSplits } from '../../lib/household';
 import { ExpenseFormModal } from './ExpenseFormModal';
 import { toast } from '../../components/Toaster';
+import { useGitHubSync } from '../sync/GitHubSyncContext';
 
 interface ExpensesResponse {
   data: Expense[];
@@ -17,6 +18,7 @@ interface ExpensesResponse {
 export function ExpensesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const { pullFromGitHub, cloudReady } = useGitHubSync();
   const selectedDate = useDateStore((s) => s.selectedDate);
   const dateParam = searchParams.get('date');
   const viewDate = dateParam || selectedDate;
@@ -43,12 +45,38 @@ export function ExpensesPage() {
     queryFn: () => api.get(`/expenses?${params}`),
   });
 
-  const { data: sharedExpenses } = useQuery<{
+  const { data: sharedExpenses, isFetching: sharedLoading } = useQuery<{
     groups: Array<{ spaceId: string; partnerName: string; expenses: Expense[]; total: string }>;
   }>({
     queryKey: ['shared-expenses', viewDate],
     queryFn: () => api.get(`/shared/expenses?date=${viewDate}`),
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
+
+  const { data: connections = [] } = useQuery<Connection[]>({
+    queryKey: ['connections'],
+    queryFn: () => api.get('/connections'),
+    enabled: cloudReady,
+  });
+
+  const expenseShareConnections = connections.filter(
+    (c) => c.features.includes('expenses') && (c.status === 'active' || c.status === 'pending_sent'),
+  );
+  const pendingExpenseShare = connections.find(
+    (c) => c.features.includes('expenses') && c.status === 'pending_sent' && c.initiatedByMe,
+  );
+
+  useEffect(() => {
+    if (!cloudReady) return;
+    pullFromGitHub()
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ['connections'] });
+        queryClient.invalidateQueries({ queryKey: ['shared-expenses'] });
+        queryClient.invalidateQueries({ queryKey: ['shared-summary'] });
+      })
+      .catch(() => undefined);
+  }, [cloudReady, pullFromGitHub, queryClient]);
 
   const sharedGroups = sharedExpenses?.groups ?? [];
 
@@ -132,9 +160,9 @@ export function ExpensesPage() {
           </Link>
           <button
           onClick={() => { setEditExpense(null); setModalOpen(true); }}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium"
+          className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
         >
-          <Plus size={16} /> Log expense
+          <Plus size={16} /> {expenseShareConnections.length > 0 ? 'Personal only' : 'Log expense'}
         </button>
         </div>
       </div>
@@ -154,9 +182,28 @@ export function ExpensesPage() {
       </div>
 
       <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 flex items-center justify-between">
-        <span className="text-sm text-brand-700 font-medium">Day total (yours)</span>
+        <span className="text-sm text-brand-700 font-medium">
+          {expenseShareConnections.length > 0 ? 'Your personal total' : 'Day total (yours)'}
+        </span>
         <span className="text-xl font-bold tabular-nums text-brand-800">{formatMoney(total)}</span>
       </div>
+
+      {pendingExpenseShare && (
+        <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">
+          <Users size={16} className="shrink-0 mt-0.5" />
+          <p>
+            Waiting for <strong>@{pendingExpenseShare.partnerUsername}</strong> to accept your share invite.
+            Shared expenses appear here after they accept.
+          </p>
+        </div>
+      )}
+
+      {sharedGroups.length > 0 && (
+        <div className="px-4 py-3 rounded-xl bg-violet-100/80 border border-violet-200 text-sm text-violet-900">
+          <p className="font-medium">Money with your partner goes here — not in &quot;Personal only&quot;</p>
+          <p className="text-violet-700 mt-1">Both of you add in the purple box below. That is what the other person sees.</p>
+        </div>
+      )}
 
       {sharedGroups.length > 0 && (
         <div className="space-y-4">
@@ -247,10 +294,23 @@ export function ExpensesPage() {
         </div>
       )}
 
+      {expenseShareConnections.some((c) => c.status === 'active') && sharedGroups.length === 0 && !pendingExpenseShare && sharedLoading && (
+        <div className="text-center py-6 text-violet-600 text-sm">
+          Loading shared expenses… If this stays empty, open Share and tap Refresh from cloud.
+        </div>
+      )}
+
       {isLoading ? (
         <div className="animate-pulse space-y-2">{[1, 2, 3].map((i) => <div key={i} className="h-14 bg-gray-200 rounded-xl" />)}</div>
+      ) : expenses.length === 0 && sharedGroups.length === 0 ? (
+        <div className="text-center py-16 text-gray-400">
+          <p>No expenses on this day</p>
+          {expenseShareConnections.some((c) => c.status === 'active') && (
+            <p className="text-sm mt-2 text-violet-600">Use the purple shared box above for partner spending</p>
+          )}
+        </div>
       ) : expenses.length === 0 ? (
-        <div className="text-center py-16 text-gray-400"><p>No expenses on this day</p></div>
+        <p className="text-sm text-gray-500 text-center py-4">No personal expenses on this day</p>
       ) : (
         <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
           <table className="w-full text-sm">

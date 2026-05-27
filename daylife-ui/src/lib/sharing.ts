@@ -263,8 +263,11 @@ export async function updatePartnerConnection(
   if (!remote) throw new Error('Partner data not found');
   const connections = remote.data.connections || [];
   const idx = connections.findIndex((c) => c.inviteId === connection.inviteId);
-  if (idx >= 0) connections[idx] = connection;
-  else connections.push(connection);
+  if (idx >= 0) {
+    connections[idx] = { ...connections[idx], ...connection, id: connections[idx].id };
+  } else {
+    connections.push(connection);
+  }
   await writeGitHubJson(
     path,
     { ...remote.data, connections, updatedAt: new Date().toISOString() },

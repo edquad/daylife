@@ -164,11 +164,17 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!cloudReady) return;
-    const onFocus = () => {
-      pullFromGitHub().catch(() => undefined);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        pullFromGitHub().catch(() => undefined);
+      }
     };
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [cloudReady, pullFromGitHub]);
 
   return (

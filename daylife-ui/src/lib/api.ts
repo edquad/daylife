@@ -1,6 +1,7 @@
 import {
   loadData,
   saveData,
+  saveDataLocal,
   getSessionUserId,
   setSessionUserId,
   uid,
@@ -44,8 +45,9 @@ import {
   SHARE_FEATURE_LABELS,
   SHARE_FEATURE_GROUPS,
   fetchAccountUserProfile,
+  mergeConnections,
 } from './sharing';
-import { flushCloudSyncNow } from './githubSync';
+import { fetchFromGitHub, flushCloudSyncNow, isGitHubConfigured, loadGitHubConfig } from './githubSync';
 
 export type { Connection, ShareFeature, ShareInvite };
 export { ALL_SHARE_FEATURES, SHARE_FEATURE_LABELS, SHARE_FEATURE_GROUPS };
@@ -412,6 +414,48 @@ function enrichExpense(data: ReturnType<typeof loadData>, exp: StoredExpense): E
     participants,
     shares: shareRows,
   };
+}
+
+/** Resolve payer name for cross-account shared expenses (partner ids are not in local users). */
+function enrichSharedExpense(
+  data: ReturnType<typeof loadData>,
+  exp: StoredExpense,
+  space: SharedSpaceData,
+  conn?: Connection,
+): Expense {
+  const enriched = enrichExpense(data, exp);
+  if (enriched.paidBy.name !== 'Unknown') return enriched;
+
+  const paidById = exp.paidById || '';
+  const memberIdx = space.memberUserIds?.indexOf(paidById) ?? -1;
+  if (memberIdx >= 0 && space.memberNames?.[memberIdx]) {
+    return {
+      ...enriched,
+      paidBy: {
+        id: paidById,
+        name: space.memberNames[memberIdx],
+        color: memberIdx === 0 ? '#8B5CF6' : '#EC4899',
+      },
+    };
+  }
+
+  const me = data.users.find((u) => u.id === getSessionUserId());
+  if (me && paidById === me.id) {
+    return { ...enriched, paidBy: userRef(me) };
+  }
+
+  if (conn && paidById) {
+    return {
+      ...enriched,
+      paidBy: {
+        id: paidById,
+        name: conn.partnerName || conn.partnerUsername,
+        color: '#8B5CF6',
+      },
+    };
+  }
+
+  return enriched;
 }
 
 function enrichSettlement(data: ReturnType<typeof loadData>, settlement: Settlement): SettlementEnriched {
@@ -1045,6 +1089,31 @@ function assertSharedFeature(conn: Connection, feature: ShareFeature): void {
 
 function partnerLabel(conn: Connection): string {
   return conn.partnerName || conn.partnerUsername;
+}
+
+/** Pick up partner accept / active status from cloud when the inviter still shows pending. */
+async function refreshConnectionsFromCloud(data: ReturnType<typeof loadData>): Promise<void> {
+  const accountId = getActiveAccountId();
+  if (!accountId) return;
+  const config = loadGitHubConfig();
+  if (!isGitHubConfigured(config)) return;
+  const needsRefresh = (data.connections || []).some(
+    (c) =>
+      c.initiatedByMe &&
+      (c.status === 'pending_sent' || (c.status === 'active' && !c.sharedSpaceId)),
+  );
+  if (!needsRefresh) return;
+
+  try {
+    const remote = await fetchFromGitHub(config);
+    if (!remote?.data.connections?.length) return;
+    const merged = mergeConnections(data.connections, remote.data.connections);
+    if (JSON.stringify(merged) === JSON.stringify(data.connections || [])) return;
+    data.connections = merged;
+    saveDataLocal(data);
+  } catch {
+    /* use local connections if cloud read fails */
+  }
 }
 
 async function readSharedSpace(
@@ -1786,6 +1855,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
   }
 
   if (route === '/connections' && method === 'GET') {
+    await refreshConnectionsFromCloud(data);
     return (data.connections || []) as T;
   }
 
@@ -1935,6 +2005,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
   }
 
   if (route === '/shared/summary' && method === 'GET') {
+    await refreshConnectionsFromCloud(data);
     const date = q.get('date') || todayISO();
     const taskConnections = getActiveSharedConnections(data, 'tasks');
     const columns = await Promise.all(
@@ -1958,7 +2029,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
         const space = await readSharedSpace(conn, data);
         const expenses = space.expenses
           .filter((e) => e.expenseDate.slice(0, 10) === date)
-          .map((e) => enrichExpense(data, e));
+          .map((e) => enrichSharedExpense(data, e, space, conn));
         const total = expenses.reduce((s, e) => s + parseFloat(e.amount), 0);
         return {
           spaceId: conn.sharedSpaceId!,
@@ -1996,13 +2067,14 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
   }
 
   if (route === '/shared/expenses' && method === 'GET') {
+    await refreshConnectionsFromCloud(data);
     const date = q.get('date') || todayISO();
     const groups = await Promise.all(
       getActiveSharedConnections(data, 'expenses').map(async (conn) => {
         const space = await readSharedSpace(conn, data);
         const expenses = space.expenses
           .filter((e) => e.expenseDate.slice(0, 10) === date)
-          .map((e) => enrichExpense(data, e));
+          .map((e) => enrichSharedExpense(data, e, space, conn));
         const total = expenses.reduce((s, e) => s + parseFloat(e.amount), 0);
         return {
           spaceId: conn.sharedSpaceId!,
@@ -2192,7 +2264,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       }
       space.expenses.push(exp);
       await saveSharedSpace(space);
-      return enrichExpense(data, exp) as T;
+      return enrichSharedExpense(data, exp, space, conn) as T;
     }
 
     if (expenseId && method === 'DELETE') {

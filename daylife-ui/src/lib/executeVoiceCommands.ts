@@ -1,8 +1,37 @@
-import { api } from './api';
+import { api, type Connection } from './api';
 import { useDateStore } from './dateStore';
 import { todayISO } from './format';
 import type { VoiceAction } from './voiceCommands';
 import { describeVoiceAction } from './voiceCommands';
+
+async function logExpenseAmount(
+  amount: number,
+  description: string,
+  categoryId: string,
+  userId: string,
+  expenseDate: string,
+): Promise<void> {
+  const connections = await api.get<Connection[]>('/connections');
+  const shared = connections.find(
+    (c) => c.status === 'active' && c.sharedSpaceId && c.features.includes('expenses'),
+  );
+  if (shared?.sharedSpaceId) {
+    await api.post(`/shared/${shared.sharedSpaceId}/expenses`, {
+      amount,
+      description,
+      categoryId,
+      expenseDate,
+    });
+    return;
+  }
+  await api.post('/expenses', {
+    amount,
+    description,
+    categoryId,
+    expenseDate,
+    paidById: userId,
+  });
+}
 
 export async function executeVoiceActions(
   actions: VoiceAction[],
@@ -25,13 +54,13 @@ export async function executeVoiceActions(
           });
           break;
         case 'expense':
-          await api.post('/expenses', {
-            amount: action.amount,
-            description: action.description,
-            categoryId: action.categoryId,
-            expenseDate: selectedDate,
-            paidById: userId,
-          });
+          await logExpenseAmount(
+            action.amount,
+            action.description,
+            action.categoryId,
+            userId,
+            selectedDate,
+          );
           break;
         case 'shopping':
           await api.post('/shopping', { name: action.name, category: 'GROCERIES' });
@@ -58,6 +87,7 @@ export function voiceQueryKeysToInvalidate(): string[][] {
     ['dashboard'],
     ['tasks'],
     ['expenses'],
+    ['shared-expenses'],
     ['shopping'],
     ['shared-shopping'],
     ['shared-summary'],
