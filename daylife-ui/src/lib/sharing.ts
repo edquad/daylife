@@ -1,4 +1,4 @@
-import { loadGitHubConfig, isGitHubConfigured, putGitHubJsonAtPath } from './githubSync';
+import { loadGitHubConfig, isGitHubConfigured, putGitHubJsonAtPath, type JsonMergeFn } from './githubSync';
 import { parseJsonText, uid } from './storage';
 import type {
   Task,
@@ -157,6 +157,44 @@ export function normalizeSharedSpace(space: SharedSpaceData): SharedSpaceData {
   };
 }
 
+function mergeById<T extends { id: string }>(local: T[], remote: T[]): T[] {
+  const map = new Map<string, T>();
+  for (const item of remote) map.set(item.id, item);
+  for (const item of local) map.set(item.id, item);
+  return Array.from(map.values());
+}
+
+function mergeRoutineLogs(local: RoutineDayLog[], remote: RoutineDayLog[]): RoutineDayLog[] {
+  const map = new Map<string, RoutineDayLog>();
+  for (const log of remote) map.set(`${log.routineId}:${log.date}`, log);
+  for (const log of local) map.set(`${log.routineId}:${log.date}`, log);
+  return Array.from(map.values());
+}
+
+/** Merge concurrent edits to the same shared space (both users editing at once). */
+export function mergeSharedSpace(local: SharedSpaceData, remote: SharedSpaceData): SharedSpaceData {
+  const localTime = local.updatedAt || '';
+  const remoteTime = remote.updatedAt || '';
+  const base = localTime >= remoteTime ? local : remote;
+  const other = base === local ? remote : local;
+  return normalizeSharedSpace({
+    ...base,
+    features: base.features?.length ? base.features : other.features,
+    memberUserIds: base.memberUserIds || other.memberUserIds,
+    memberNames: base.memberNames || other.memberNames,
+    tasks: mergeById(local.tasks ?? [], remote.tasks ?? []),
+    expenses: mergeById(local.expenses ?? [], remote.expenses ?? []),
+    settlements: mergeById(local.settlements ?? [], remote.settlements ?? []),
+    shoppingItems: mergeById(local.shoppingItems ?? [], remote.shoppingItems ?? []),
+    notes: mergeById(local.notes ?? [], remote.notes ?? []),
+    reminders: mergeById(local.reminders ?? [], remote.reminders ?? []),
+    routines: mergeById(local.routines ?? [], remote.routines ?? []),
+    routineLogs: mergeRoutineLogs(local.routineLogs ?? [], remote.routineLogs ?? []),
+    visionBoard: mergeById(local.visionBoard ?? [], remote.visionBoard ?? []),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 function authHeaders(token: string): HeadersInit {
   return {
     Authorization: `Bearer ${token.trim()}`,
@@ -196,8 +234,14 @@ async function readGitHubJson<T>(path: string): Promise<{ data: T; sha?: string 
   return { data: parseJsonText<T>(decodeBase64Utf8(json.content)), sha: json.sha as string };
 }
 
-async function writeGitHubJson(path: string, data: unknown, _sha?: string, message?: string): Promise<string> {
-  return putGitHubJsonAtPath(path, data, message);
+async function writeGitHubJson(
+  path: string,
+  data: unknown,
+  _sha?: string,
+  message?: string,
+  merge?: JsonMergeFn<unknown>,
+): Promise<string> {
+  return putGitHubJsonAtPath(path, data, message, merge);
 }
 
 export async function fetchAccountUserProfile(
@@ -231,9 +275,13 @@ export async function fetchSharedSpace(spaceId: string): Promise<SharedSpaceData
 }
 
 export async function saveSharedSpace(space: SharedSpaceData): Promise<void> {
-  const remote = await readGitHubJson<SharedSpaceData>(sharedSpacePath(space.id));
   const stamped = normalizeSharedSpace({ ...space, updatedAt: new Date().toISOString() });
-  await writeGitHubJson(sharedSpacePath(space.id), stamped, remote?.sha, 'Rozka shared space');
+  await putGitHubJsonAtPath(
+    sharedSpacePath(space.id),
+    stamped,
+    'Rozka shared space',
+    (local, remote) => mergeSharedSpace(local as SharedSpaceData, remote as SharedSpaceData),
+  );
 }
 
 export async function updatePartnerConnection(

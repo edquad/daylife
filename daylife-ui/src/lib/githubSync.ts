@@ -4,13 +4,17 @@ import { getActiveAccountId, accountCloudPath } from './accounts';
 import { mergeConnections } from './sharing';
 
 const CONFIG_KEY = 'daylife_github_sync';
-const MAX_CONFLICT_RETRIES = 5;
+const MAX_CONFLICT_RETRIES = 8;
+const TAB_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const CLOUD_LOCK_KEY = 'daylife_cloud_write_lock';
+
+export type JsonMergeFn<T> = (local: T, remote: T) => T;
 
 /** Serialize GitHub writes so concurrent saves do not 409-loop each other. */
 let cloudWriteQueue: Promise<unknown> = Promise.resolve();
 
 export function runCloudWrite<T>(task: () => Promise<T>): Promise<T> {
-  const next = cloudWriteQueue.then(task, task);
+  const next = cloudWriteQueue.then(() => withCloudWriteLock(task), () => withCloudWriteLock(task));
   cloudWriteQueue = next.then(
     () => undefined,
     () => undefined,
@@ -20,6 +24,31 @@ export function runCloudWrite<T>(task: () => Promise<T>): Promise<T> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Best-effort lock so two browser tabs do not PUT the same file at the same time. */
+async function withCloudWriteLock<T>(task: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + 12000;
+  while (Date.now() < deadline) {
+    const now = Date.now();
+    let lock: { tab: string; until: number } | null = null;
+    try {
+      lock = JSON.parse(localStorage.getItem(CLOUD_LOCK_KEY) || 'null');
+    } catch {
+      lock = null;
+    }
+    if (!lock || lock.until <= now || lock.tab === TAB_ID) {
+      localStorage.setItem(CLOUD_LOCK_KEY, JSON.stringify({ tab: TAB_ID, until: now + 8000 }));
+      try {
+        return await task();
+      } finally {
+        const current = JSON.parse(localStorage.getItem(CLOUD_LOCK_KEY) || 'null');
+        if (current?.tab === TAB_ID) localStorage.removeItem(CLOUD_LOCK_KEY);
+      }
+    }
+    await sleep(250);
+  }
+  return task();
 }
 
 /** Built-in cloud storage — always on, no user setup. */
@@ -146,55 +175,59 @@ export async function fetchFromGitHub(config: GitHubSyncConfig): Promise<RemoteF
   return { data: normalizeAppData(parsed), sha: json.sha as string, needsRepair };
 }
 
-async function fetchShaForPath(config: GitHubSyncConfig, path: string): Promise<string | undefined> {
+async function putGitHubContents<T>(
+  config: GitHubSyncConfig,
+  path: string,
+  payload: T,
+  message: string,
+  merge?: JsonMergeFn<T>,
+  attempt = 0,
+): Promise<string> {
+  if (attempt >= MAX_CONFLICT_RETRIES) {
+    throw new Error('Cloud sync conflict — wait a few seconds, then tap Refresh from cloud in Settings');
+  }
+
   const owner = config.owner.trim();
   const repo = config.repo.trim();
   const branch = config.branch.trim() || 'main';
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${encodeURIComponent(branch)}`;
-  const res = await fetch(url, { headers: authHeaders(config.token) });
-  if (res.status === 404) return undefined;
-  if (!res.ok) return undefined;
-  const json = await res.json();
-  return json.sha as string;
-}
+  const getRes = await fetch(url, { headers: authHeaders(config.token) });
 
-/** Low-level GitHub Contents PUT with bounded conflict retries. */
-async function putGitHubContents(
-  config: GitHubSyncConfig,
-  path: string,
-  payload: unknown,
-  message: string,
-  sha?: string,
-  attempt = 0,
-): Promise<string> {
-  const owner = config.owner.trim();
-  const repo = config.repo.trim();
-  const branch = config.branch.trim() || 'main';
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-  let fileSha = sha;
-  if (attempt > 0 || !fileSha) {
-    fileSha = await fetchShaForPath(config, path);
+  let fileSha: string | undefined;
+  let toWrite = payload;
+
+  if (getRes.ok) {
+    const json = await getRes.json();
+    fileSha = json.sha as string;
+    if (merge) {
+      try {
+        const remoteData = parseJsonText<T>(decodeBase64Utf8(json.content));
+        toWrite = merge(payload, remoteData);
+      } catch {
+        /* keep payload */
+      }
+    }
+  } else if (getRes.status !== 404) {
+    throw new Error(`Could not read cloud data (${getRes.status})`);
   }
 
+  const putUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
   const body: Record<string, string> = {
     message,
-    content: encodeBase64Utf8(JSON.stringify(payload, null, 2)),
+    content: encodeBase64Utf8(JSON.stringify(toWrite, null, 2)),
     branch,
   };
   if (fileSha) body.sha = fileSha;
 
-  const res = await fetch(url, {
+  const res = await fetch(putUrl, {
     method: 'PUT',
     headers: { ...authHeaders(config.token), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 
   if (res.status === 409) {
-    if (attempt >= MAX_CONFLICT_RETRIES) {
-      throw new Error('Cloud sync conflict — wait a few seconds, then tap Refresh from cloud in Settings');
-    }
-    await sleep(300 * (attempt + 1));
-    return putGitHubContents(config, path, payload, message, undefined, attempt + 1);
+    await sleep(400 * (attempt + 1));
+    return putGitHubContents(config, path, payload, message, merge, attempt + 1);
   }
 
   if (!res.ok) {
@@ -206,69 +239,37 @@ async function putGitHubContents(
 }
 
 /** Write any JSON blob to the cloud repo (shared spaces, inbox, registry, etc.). */
-export async function putGitHubJsonAtPath(path: string, data: unknown, message?: string): Promise<string> {
+export async function putGitHubJsonAtPath<T = unknown>(
+  path: string,
+  data: T,
+  message?: string,
+  merge?: JsonMergeFn<T>,
+): Promise<string> {
   return runCloudWrite(async () => {
     const config = loadGitHubConfig();
     if (!isGitHubConfigured(config)) throw new Error('Cloud sync not available');
-    return putGitHubContents(config, path, data, message || `Rozka update ${path}`);
+    return putGitHubContents(config, path, data, message || `Rozka update ${path}`, merge);
   });
 }
 
-async function pushToGitHubOnce(
-  config: GitHubSyncConfig,
-  data: AppData,
-  sha?: string,
-  attempt = 0,
-): Promise<string> {
+async function pushToGitHubOnce(config: GitHubSyncConfig, data: AppData): Promise<string> {
   const path = config.path.trim() || 'data/daylife.json';
   const stamped: AppData = { ...data, updatedAt: data.updatedAt || new Date().toISOString() };
+  const remote = await fetchFromGitHub(config);
+  const merged = remote ? mergeAppData(stamped, remote.data) : stamped;
+  saveDataLocal(merged);
 
-  const owner = config.owner.trim();
-  const repo = config.repo.trim();
-  const branch = config.branch.trim() || 'main';
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-  let fileSha = sha ?? config.lastSha;
-  if (attempt > 0) {
-    fileSha = await fetchShaForPath(config, path);
-  }
-
-  const body: Record<string, string> = {
-    message: `Rozka sync ${stamped.updatedAt}`,
-    content: encodeBase64Utf8(JSON.stringify(stamped, null, 2)),
-    branch,
-  };
-  if (fileSha) body.sha = fileSha;
-
-  const res = await fetch(url, {
-    method: 'PUT',
-    headers: { ...authHeaders(config.token), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (res.status === 409) {
-    if (attempt >= MAX_CONFLICT_RETRIES) {
-      throw new Error('Cloud sync conflict — wait a few seconds, then tap Refresh from cloud in Settings');
-    }
-    const remote = await fetchFromGitHub(config);
-    if (!remote) {
-      throw new Error('Could not resolve cloud sync conflict');
-    }
-    const merged = mergeAppData(stamped, remote.data);
-    saveDataLocal(merged);
-    await sleep(300 * (attempt + 1));
-    return pushToGitHubOnce(config, merged, remote.sha, attempt + 1);
-  }
-
-  if (!res.ok) {
-    throw new Error(res.status === 401 ? 'Cloud sync auth failed' : `Could not save cloud data (${res.status})`);
-  }
-
-  const json = await res.json();
-  return json.content.sha as string;
+  return putGitHubContents(
+    config,
+    path,
+    merged,
+    `Rozka sync ${merged.updatedAt}`,
+    mergeAppData,
+  );
 }
 
-export async function pushToGitHub(config: GitHubSyncConfig, data: AppData, sha?: string): Promise<string> {
-  return runCloudWrite(() => pushToGitHubOnce(config, data, sha));
+export async function pushToGitHub(config: GitHubSyncConfig, data: AppData): Promise<string> {
+  return runCloudWrite(() => pushToGitHubOnce(config, data));
 }
 
 export function pickNewerData(local: AppData, remote: AppData): 'local' | 'remote' {
@@ -294,10 +295,7 @@ export async function flushCloudSyncNow(): Promise<void> {
     const config = loadGitHubConfig();
     if (!isGitHubConfigured(config)) return;
     const local = loadData();
-    const remote = await fetchFromGitHub(config);
-    const merged = remote ? mergeAppData(local, remote.data) : local;
-    saveDataLocal(merged);
-    const sha = await pushToGitHubOnce(config, merged, remote?.sha ?? config.lastSha);
+    const sha = await pushToGitHubOnce(config, local);
     saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
   });
 }
@@ -318,31 +316,24 @@ export async function pullAndMerge(config: GitHubSyncConfig): Promise<'local' | 
 
 export async function syncNow(config: GitHubSyncConfig): Promise<void> {
   return runCloudWrite(async () => {
-    const remote = await fetchFromGitHub(config);
     const local = loadData();
-
-    if (!remote) {
-      const sha = await pushToGitHubOnce(config, local);
-      saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
-      return;
-    }
-
-    const merged = mergeAppData(local, remote.data);
-    saveDataLocal(merged);
-
-    const sha = await pushToGitHubOnce(config, merged, remote.sha);
+    const sha = await pushToGitHubOnce(config, local);
     saveGitHubConfig({ lastSha: sha, lastSyncedAt: new Date().toISOString() });
   });
 }
 
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 let pushInFlight = false;
+let pushPending = false;
 
 export function scheduleGitHubPush(config: GitHubSyncConfig): void {
   if (!isGitHubConfigured(config)) return;
   if (pushTimer) clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
-    if (pushInFlight) return;
+    if (pushInFlight) {
+      pushPending = true;
+      return;
+    }
     pushInFlight = true;
     syncNow(loadGitHubConfig())
       .then(() => {
@@ -355,6 +346,10 @@ export function scheduleGitHubPush(config: GitHubSyncConfig): void {
       })
       .finally(() => {
         pushInFlight = false;
+        if (pushPending) {
+          pushPending = false;
+          scheduleGitHubPush(loadGitHubConfig());
+        }
       });
-  }, 2000);
+  }, 2500);
 }

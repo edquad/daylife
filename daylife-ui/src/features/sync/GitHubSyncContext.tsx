@@ -169,7 +169,7 @@ export function GitHubSyncProvider({ children }: { children: ReactNode }) {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
       const now = Date.now();
-      if (now - lastPullAtRef.current < 30000) return;
+      if (now - lastPullAtRef.current < 45000) return;
       lastPullAtRef.current = now;
       pullFromGitHub().catch(() => undefined);
     };
