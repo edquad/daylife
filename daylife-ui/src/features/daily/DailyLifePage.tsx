@@ -5,11 +5,14 @@ import {
   api,
   ShoppingItem,
   RoutineToday,
+  RoutineItem,
   Reminder,
   UpcomingReminder,
   ShoppingCategory,
   User,
 } from '../../lib/api';
+import { labelsToRoutineItems, templatesForTimeOfDay } from '../../lib/routines';
+import { uid } from '../../lib/storage';
 import { useDateStore } from '../../lib/dateStore';
 import { formatDate, todayISO } from '../../lib/format';
 import { cn } from '../../lib/utils';
@@ -27,6 +30,8 @@ import {
   CheckCircle2,
   Circle,
   Sparkles,
+  Pencil,
+  X,
 } from 'lucide-react';
 
 type Tab = 'shopping' | 'routines' | 'reminders';
@@ -304,6 +309,18 @@ function RoutinesTab() {
   const queryClient = useQueryClient();
   const [newRoutineName, setNewRoutineName] = useState('');
   const [newItemLabels, setNewItemLabels] = useState('');
+  const [editingRoutine, setEditingRoutine] = useState<RoutineToday | null>(null);
+  const [editItems, setEditItems] = useState<RoutineItem[]>([]);
+
+  const openEdit = (routine: RoutineToday) => {
+    setEditingRoutine(routine);
+    setEditItems(routine.items.map(({ id, label }) => ({ id, label })));
+  };
+
+  const closeEdit = () => {
+    setEditingRoutine(null);
+    setEditItems([]);
+  };
 
   const { data, isLoading } = useQuery<{ date: string; routines: RoutineToday[] }>({
     queryKey: ['routines-today', selectedDate],
@@ -356,6 +373,23 @@ function RoutinesTab() {
     onSuccess: () => { invalidate(); toast.success('Routine removed'); },
   });
 
+  const updateRoutine = useMutation({
+    mutationFn: () => {
+      if (!editingRoutine) throw new Error('No routine selected');
+      const items = editItems.map((item) => ({ id: item.id, label: item.label.trim() })).filter((item) => item.label);
+      if (items.length === 0) throw new Error('Add at least one step');
+      return api.put(`/routines/${editingRoutine.id}`, { items });
+    },
+    onSuccess: () => {
+      invalidate();
+      closeEdit();
+      toast.success('Routine updated');
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const routineTemplates = editingRoutine ? templatesForTimeOfDay(editingRoutine.timeOfDay) : [];
+
   const routines = data?.routines ?? [];
   const totalDone = routines.reduce((s, r) => s + r.done, 0);
   const totalItems = routines.reduce((s, r) => s + r.total, 0);
@@ -386,6 +420,14 @@ function RoutinesTab() {
                   <h3 className="font-semibold">{routine.name}</h3>
                   <p className="text-xs text-gray-400">{routine.done} of {routine.total} done · {progress}%</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => openEdit(routine)}
+                  className="p-2 text-gray-400 hover:text-brand-600"
+                  title="Edit steps"
+                >
+                  <Pencil size={16} />
+                </button>
                 {!routine.id.startsWith('routine-') && (
                   <button onClick={() => deleteRoutine.mutate(routine.id)} className="p-2 text-gray-400 hover:text-red-500">
                     <Trash2 size={16} />
@@ -474,6 +516,82 @@ function RoutinesTab() {
           Add routine
         </button>
       </section>
+
+      {editingRoutine && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div>
+                <h2 className="text-lg font-semibold">Edit {editingRoutine.name}</h2>
+                <p className="text-xs text-gray-500">Change steps or pick a preset</p>
+              </div>
+              <button type="button" onClick={closeEdit} className="p-2 text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              {routineTemplates.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-2">Quick presets</p>
+                  <div className="flex flex-wrap gap-2">
+                    {routineTemplates.map((template) => (
+                      <button
+                        key={template.id}
+                        type="button"
+                        onClick={() => setEditItems(labelsToRoutineItems(template.items))}
+                        className="px-3 py-1.5 text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-full hover:bg-amber-100"
+                      >
+                        {template.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div>
+                <p className="text-sm font-medium mb-2">Steps</p>
+                <div className="space-y-2">
+                  {editItems.map((item, index) => (
+                    <div key={item.id} className="flex gap-2">
+                      <input
+                        value={item.label}
+                        onChange={(e) => {
+                          const label = e.target.value;
+                          setEditItems((prev) => prev.map((row, i) => (i === index ? { ...row, label } : row)));
+                        }}
+                        placeholder="Routine step"
+                        className="flex-1 px-3 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setEditItems((prev) => prev.filter((_, i) => i !== index))}
+                        className="p-2 text-gray-400 hover:text-red-500 shrink-0"
+                        title="Remove step"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditItems((prev) => [...prev, { id: uid(), label: '' }])}
+                  className="mt-2 flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700 font-medium"
+                >
+                  <Plus size={14} /> Add step
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => updateRoutine.mutate()}
+                disabled={updateRoutine.isPending || editItems.every((item) => !item.label.trim())}
+                className="w-full py-2.5 bg-brand-600 text-white font-semibold rounded-xl hover:bg-brand-700 disabled:opacity-50"
+              >
+                {updateRoutine.isPending ? 'Saving…' : 'Save routine'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

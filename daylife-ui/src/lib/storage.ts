@@ -13,6 +13,7 @@ import type {
 } from './api';
 import type { HouseholdType } from './household';
 import type { Connection } from './sharing';
+import { defaultMorningItems, defaultEveningItems } from './routines';
 
 const STORAGE_KEY = 'daylife_data';
 const SESSION_KEY = 'daylife_session';
@@ -90,22 +91,13 @@ function defaultRoutines(): Routine[] {
       id: 'routine-morning',
       name: 'Morning routine',
       timeOfDay: 'MORNING',
-      items: [
-        { id: 'm1', label: 'Wake up & stretch' },
-        { id: 'm2', label: 'Brush & shower' },
-        { id: 'm3', label: 'Breakfast' },
-        { id: 'm4', label: 'Check today\'s plan' },
-      ],
+      items: defaultMorningItems(),
     },
     {
       id: 'routine-evening',
       name: 'Evening routine',
       timeOfDay: 'EVENING',
-      items: [
-        { id: 'e1', label: 'Tidy kitchen / living room' },
-        { id: 'e2', label: 'Prep for tomorrow' },
-        { id: 'e3', label: 'Relax / unwind' },
-      ],
+      items: defaultEveningItems(),
     },
   ];
 }
