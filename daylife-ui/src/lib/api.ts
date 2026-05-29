@@ -155,11 +155,14 @@ export interface SplitBalancesResponse {
   settlements: SettlementEnriched[];
 }
 
+export type NoteKind = 'GENERAL' | 'GRATITUDE' | 'REFLECTION';
+
 export interface DailyNote {
   id: string;
   content: string;
   area: 'PERSONAL' | 'WORK' | 'HOME';
   noteDate: string;
+  noteKind?: NoteKind;
   author: { id: string; name: string; color: string };
   visibility?: ItemVisibility;
   ownerId?: string;
@@ -213,6 +216,35 @@ export interface Reminder {
 }
 
 export type VisionCategory =
+  | 'HEALTH_FITNESS'
+  | 'BEAUTY_GLOW'
+  | 'SELF_LOVE'
+  | 'CONFIDENCE'
+  | 'RELATIONSHIPS'
+  | 'MARRIAGE'
+  | 'FRIENDSHIPS'
+  | 'FAMILY'
+  | 'DREAM_JOB'
+  | 'BUSINESS'
+  | 'MONEY'
+  | 'LUXURY'
+  | 'SPIRITUAL'
+  | 'INNER_PEACE'
+  | 'HEALING'
+  | 'CREATIVITY'
+  | 'FAME'
+  | 'EDUCATION'
+  | 'FASHION'
+  | 'DISCIPLINE'
+  | 'HAPPINESS'
+  | 'MOTHERHOOD'
+  | 'ADVENTURE'
+  | 'PROTECTION'
+  | 'CLARITY'
+  | 'SOFT_LIFE'
+  | 'FEMININE'
+  | 'MASCULINE'
+  | 'COMMUNITY'
   | 'TRAVEL'
   | 'HOME'
   | 'CAREER'
@@ -558,6 +590,7 @@ function enrichNote(data: ReturnType<typeof loadData>, note: DailyNote & { autho
     content: note.content,
     area: note.area,
     noteDate: note.noteDate,
+    noteKind: note.noteKind,
     visibility: note.visibility,
     ownerId: note.ownerId || note.authorId,
     author: author ? userRef(author) : { id: '', name: 'Unknown', color: '#6B7280' },
@@ -939,15 +972,19 @@ function splitBalancesForSharedSpace(
 
 function filterNotes(data: ReturnType<typeof loadData>, q: URLSearchParams, viewerId: string | null) {
   let notes = filterVisible(
-    [...data.notes] as Array<{ id: string; content: string; area: DailyNote['area']; noteDate: string; authorId?: string; visibility?: ItemVisibility; ownerId?: string }>,
+    [...data.notes] as Array<{ id: string; content: string; area: DailyNote['area']; noteDate: string; noteKind?: NoteKind; authorId?: string; visibility?: ItemVisibility; ownerId?: string }>,
     viewerId,
     noteOwnerId,
     (n) => n.visibility,
   );
   const area = q.get('area');
+  const noteKind = q.get('noteKind') as NoteKind | null;
+  const noteDate = q.get('noteDate');
   const from = q.get('from');
   const to = q.get('to');
   if (area) notes = notes.filter((n) => n.area === area);
+  if (noteKind) notes = notes.filter((n) => (n.noteKind || 'GENERAL') === noteKind);
+  if (noteDate) notes = notes.filter((n) => n.noteDate.slice(0, 10) === noteDate.slice(0, 10));
   if (from) notes = notes.filter((n) => n.noteDate.slice(0, 10) >= from);
   if (to) notes = notes.filter((n) => n.noteDate.slice(0, 10) <= to);
   notes.sort((a, b) => b.noteDate.localeCompare(a.noteDate));
@@ -1623,12 +1660,13 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
   }
 
   if (route === '/notes' && method === 'POST') {
-    const b = body as { content: string; area: DailyNote['area']; noteDate: string; visibility?: ItemVisibility };
+    const b = body as { content: string; area: DailyNote['area']; noteDate: string; visibility?: ItemVisibility; noteKind?: NoteKind };
     const note = {
       id: uid(),
       content: b.content,
       area: b.area,
       noteDate: b.noteDate,
+      noteKind: b.noteKind || 'GENERAL',
       authorId: sessionId!,
       ownerId: sessionId!,
       visibility: b.visibility || defaultVisibility(data.users.length),

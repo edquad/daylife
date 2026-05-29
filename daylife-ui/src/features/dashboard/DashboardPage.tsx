@@ -41,6 +41,8 @@ import { PendingInvitesBanner, shareScopeLabel } from '../../components/PendingI
 import { TaskFormModal } from '../tasks/TaskFormModal';
 import { DailyRhythmSection } from '../../components/DailyRhythmSection';
 import { WelcomeDayCard } from '../../components/WelcomeDayCard';
+import { EveningReflectionSection } from '../../components/EveningReflectionSection';
+import { HouseholdDayView } from '../../components/HouseholdDayView';
 import { getDayPhase, phaseGreeting, phaseHint } from '../../lib/dailyFlow';
 
 interface PersonSummary {
@@ -248,6 +250,9 @@ export function DashboardPage() {
   const todayDoneAll =
     todayDone + sharedColumns.reduce((n, c) => n + c.tasks.filter((t) => t.status === 'DONE').length, 0);
 
+  const showHouseholdView = isMultiMember || sharedColumns.length > 0;
+  const showEveningReflection = isToday && (dayPhase === 'evening' || dayPhase === 'afternoon');
+
   return (
     <div className="p-4 lg:p-6 max-w-3xl mx-auto space-y-5">
       <PageHeader
@@ -357,63 +362,93 @@ export function DashboardPage() {
       <DaySection
         accent="blue"
         icon={CheckSquare}
-        title="Today's to-dos"
-        subtitle="Quick check-off — add with + or voice"
+        title={showHouseholdView ? "Today's plan" : "Today's to-dos"}
+        subtitle={showHouseholdView ? 'Everyone on one screen — tap to check off' : 'Quick check-off — add with + or voice'}
         action={
           <Link to="/tasks" className="text-xs font-medium text-blue-600 hover:underline shrink-0">
             All tasks →
           </Link>
         }
       >
-        <div className={memberGridClass(Math.max(members.length, 1) + sharedColumns.length)}>
-          {[...members]
-            .sort((a, b) => {
-              if (a.id === user?.id) return -1;
-              if (b.id === user?.id) return 1;
-              return 0;
-            })
-            .map((member) => {
-              const personData = byPerson.find((p) => p.userId === member.id);
-              return (
-                <PersonDayColumn
-                  key={member.id}
-                  person={member}
-                  tasks={personData?.tasks ?? []}
+        {showHouseholdView ? (
+          <HouseholdDayView
+            members={members}
+            byPerson={byPerson}
+            sharedColumns={sharedColumns}
+            routines={routines}
+            currentUserId={user?.id}
+            onAddTask={(assigneeId, spaceId) => {
+              if (spaceId) {
+                setTaskModalDefaults({ defaultShareScope: { kind: 'connection', spaceId } });
+              } else {
+                setTaskModalDefaults({
+                  defaultAssigneeId: assigneeId,
+                  defaultShareScope: { kind: 'personal', visibility: defaultVisibility(members.length) },
+                });
+              }
+              setTaskModalOpen(true);
+            }}
+          />
+        ) : (
+          <>
+            <div className={memberGridClass(Math.max(members.length, 1) + sharedColumns.length)}>
+              {[...members]
+                .sort((a, b) => {
+                  if (a.id === user?.id) return -1;
+                  if (b.id === user?.id) return 1;
+                  return 0;
+                })
+                .map((member) => {
+                  const personData = byPerson.find((p) => p.userId === member.id);
+                  return (
+                    <PersonDayColumn
+                      key={member.id}
+                      person={member}
+                      tasks={personData?.tasks ?? []}
+                      selectedDate={selectedDate}
+                      highlight={member.id === user?.id}
+                      compact={member.id === user?.id && !isMultiMember}
+                      onAddTask={() => {
+                        setTaskModalDefaults({
+                          defaultAssigneeId: member.id,
+                          defaultShareScope: { kind: 'personal', visibility: defaultVisibility(members.length) },
+                        });
+                        setTaskModalOpen(true);
+                      }}
+                    />
+                  );
+                })}
+              {sharedColumns.map((col) => (
+                <SharedDayColumn
+                  key={col.spaceId}
+                  spaceId={col.spaceId}
+                  partnerName={col.partnerName}
+                  tasks={col.tasks}
                   selectedDate={selectedDate}
-                  highlight={member.id === user?.id}
-                  compact={member.id === user?.id && !isMultiMember}
                   onAddTask={() => {
                     setTaskModalDefaults({
-                      defaultAssigneeId: member.id,
-                      defaultShareScope: { kind: 'personal', visibility: defaultVisibility(members.length) },
+                      defaultShareScope: { kind: 'connection', spaceId: col.spaceId },
                     });
                     setTaskModalOpen(true);
                   }}
                 />
-              );
-            })}
-          {sharedColumns.map((col) => (
-            <SharedDayColumn
-              key={col.spaceId}
-              spaceId={col.spaceId}
-              partnerName={col.partnerName}
-              tasks={col.tasks}
-              selectedDate={selectedDate}
-              onAddTask={() => {
-                setTaskModalDefaults({
-                  defaultShareScope: { kind: 'connection', spaceId: col.spaceId },
-                });
-                setTaskModalOpen(true);
-              }}
-            />
-          ))}
-        </div>
-        {todayTotal === 0 && (
-          <p className="text-sm text-gray-500 text-center py-4">
-            Nothing planned yet. Type a task above or tap + to add one.
+              ))}
+            </div>
+            {todayTotal === 0 && (
+              <p className="text-sm text-gray-500 text-center py-4">
+                Nothing planned yet. Type a task above or tap + to add one.
+              </p>
+            )}
+          </>
+        )}
+        {showHouseholdView && todayTotal === 0 && (
+          <p className="text-sm text-gray-500 text-center py-4 mt-2">
+            Nothing planned yet — tap + next to someone&apos;s name to add a task.
           </p>
         )}
       </DaySection>
+
+      <EveningReflectionSection selectedDate={selectedDate} visible={showEveningReflection} />
 
       <div className="grid sm:grid-cols-2 gap-4">
         <DaySection

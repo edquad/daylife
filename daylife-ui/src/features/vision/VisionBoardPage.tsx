@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../auth/AuthContext';
 import { api, VisionBoardItemEnriched, VisionCategory, User } from '../../lib/api';
-import { categoryMeta, VISION_CATEGORIES, VISION_INSPIRATIONS } from '../../lib/visionBoard';
+import { categoryMeta, VISION_CATEGORIES, VISION_INSPIRATIONS, VISION_BOARD_PRESETS, VISION_AFFIRMATIONS, VISION_CATEGORY_GROUPS } from '../../lib/visionBoard';
 import { cn } from '../../lib/utils';
 import { toast } from '../../components/Toaster';
 import { Plus, Sparkles, Trash2, Check, X, ImageIcon, Star } from 'lucide-react';
@@ -38,6 +38,7 @@ export function VisionBoardPage() {
     queryFn: () => api.get('/users'),
   });
   const [filter, setFilter] = useState<Filter>('all');
+  const [presetFilter, setPresetFilter] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState<VisionBoardItemEnriched | null>(null);
   const [form, setForm] = useState<FormState>(() => emptyForm(user?.id));
@@ -154,6 +155,13 @@ export function VisionBoardPage() {
   const activeCount = allItems.filter((i) => !i.achieved).length;
   const achievedCount = allItems.filter((i) => i.achieved).length;
 
+  const presetCategories = presetFilter
+    ? VISION_BOARD_PRESETS.find((p) => p.id === presetFilter)?.filter
+    : null;
+  const displayedItems = presetCategories
+    ? items.filter((i) => presetCategories.includes(i.category))
+    : items;
+
   return (
     <div className="p-4 lg:p-6 space-y-5 max-w-4xl mx-auto">
       <PageHeader
@@ -173,8 +181,48 @@ export function VisionBoardPage() {
         }
       />
 
+      <section className="bg-gradient-to-r from-violet-50 via-fuchsia-50 to-amber-50 rounded-2xl border border-violet-100 p-4 space-y-3">
+        <p className="text-sm font-medium text-violet-900">Board themes</p>
+        <div className="flex flex-wrap gap-2">
+          {VISION_BOARD_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => setPresetFilter(presetFilter === preset.id ? null : preset.id)}
+              className={cn(
+                'px-3 py-1.5 text-sm rounded-full border transition-colors',
+                presetFilter === preset.id
+                  ? 'bg-violet-600 text-white border-violet-600'
+                  : 'bg-white/80 border-violet-100 hover:border-violet-200',
+              )}
+            >
+              {preset.emoji} {preset.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="bg-white rounded-2xl border border-violet-100 p-4">
+        <p className="text-sm font-medium text-violet-900 mb-2">Affirmations — tap to add</p>
+        <div className="flex flex-wrap gap-2">
+          {VISION_AFFIRMATIONS.map((aff) => {
+            const meta = categoryMeta(aff.category);
+            return (
+              <button
+                key={aff.text}
+                type="button"
+                onClick={() => openAdd({ title: aff.text, emoji: aff.emoji, category: aff.category, color: meta.color })}
+                className="px-3 py-1.5 text-xs sm:text-sm bg-violet-50 border border-violet-100 rounded-full hover:bg-violet-100 text-violet-900 text-left"
+              >
+                {aff.emoji} {aff.text}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       <section className="bg-gradient-to-r from-violet-50 via-fuchsia-50 to-amber-50 rounded-2xl border border-violet-100 p-4">
-        <p className="text-sm font-medium text-violet-900 mb-2">Quick add</p>
+        <p className="text-sm font-medium text-violet-900 mb-2">Quick add dreams</p>
         <div className="flex flex-wrap gap-2">
           {VISION_INSPIRATIONS.map((idea) => {
             const meta = categoryMeta(idea.category);
@@ -270,15 +318,15 @@ export function VisionBoardPage() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
           {[1, 2, 3].map((i) => <div key={i} className="h-48 bg-gray-200 rounded-2xl" />)}
         </div>
-      ) : items.length === 0 ? (
+      ) : displayedItems.length === 0 ? (
         <div className="text-center py-20 text-gray-400">
           <Sparkles size={40} className="mx-auto mb-3 opacity-40" />
-          <p className="font-medium">Your vision board is empty</p>
-          <p className="text-sm mt-1">Add dreams, goals, or paste an image link</p>
+          <p className="font-medium">{presetFilter ? 'Nothing in this theme yet' : 'Your vision board is empty'}</p>
+          <p className="text-sm mt-1">Add dreams, goals, or tap an affirmation above</p>
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {items.map((item) => (
+          {displayedItems.map((item) => (
             <VisionCard
               key={item.id}
               item={item}
@@ -363,21 +411,28 @@ export function VisionBoardPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-2">Category</label>
-                <div className="flex flex-wrap gap-2">
-                  {VISION_CATEGORIES.map((cat) => (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setForm((f) => ({ ...f, category: cat.id, color: cat.color, emoji: f.emoji || cat.emoji }))}
-                      className={cn(
-                        'px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
-                        form.category === cat.id ? 'text-white border-transparent' : 'bg-white text-gray-600 border-gray-200',
-                      )}
-                      style={form.category === cat.id ? { backgroundColor: cat.color } : undefined}
-                    >
-                      {cat.emoji} {cat.label}
-                    </button>
+                <label className="block text-sm font-medium mb-2">Life area</label>
+                <div className="space-y-3 max-h-52 overflow-y-auto pr-1">
+                  {VISION_CATEGORY_GROUPS.map((group) => (
+                    <div key={group.title}>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">{group.title}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {group.categories.map((cat) => (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => setForm((f) => ({ ...f, category: cat.id, color: cat.color, emoji: f.emoji || cat.emoji }))}
+                            className={cn(
+                              'px-2 py-1 rounded-full text-[11px] font-medium border transition-colors',
+                              form.category === cat.id ? 'text-white border-transparent' : 'bg-white text-gray-600 border-gray-200',
+                            )}
+                            style={form.category === cat.id ? { backgroundColor: cat.color } : undefined}
+                          >
+                            {cat.emoji} {cat.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
