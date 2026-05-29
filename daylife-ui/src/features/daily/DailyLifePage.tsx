@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -22,6 +22,7 @@ import { DailyFlowStrip } from '../../components/DailyFlowStrip';
 import { getDayPhase, defaultDailyTab } from '../../lib/dailyFlow';
 import { ShareScopePicker } from '../../components/ShareScopePicker';
 import type { ShareScope } from '../../lib/shareScope';
+import { loadShareScope } from '../../lib/shareScope';
 import {
   ShoppingCart,
   Sun,
@@ -63,6 +64,12 @@ function ShoppingTab() {
     queryKey: ['users'],
     queryFn: () => api.get('/users'),
   });
+
+  useEffect(() => {
+    if (members.length > 0) {
+      setShareScope(loadShareScope('shopping', members.length));
+    }
+  }, [members.length]);
 
   const { data, isLoading } = useQuery<{ data: ShoppingItem[]; pending: number }>({
     queryKey: ['shopping'],
@@ -158,29 +165,41 @@ function ShoppingTab() {
     setQuantity('');
   };
 
+  const handleQuickAdd = (itemName: string) => {
+    if (shareScope.kind === 'connection') {
+      addSharedItem.mutate({
+        spaceId: shareScope.spaceId,
+        itemName,
+        itemCategory: category,
+      });
+    } else {
+      addItem.mutate({ name: itemName });
+    }
+  };
+
   return (
     <div className="space-y-4">
       <section className="bg-white rounded-2xl border shadow-sm p-4">
         <h2 className="font-semibold mb-3">Quick add</h2>
-        <div className="flex flex-wrap gap-2 mb-4">
+        <ShareScopePicker
+          feature="shopping"
+          value={shareScope}
+          onChange={setShareScope}
+          membersCount={members.length}
+        />
+        <div className="flex flex-wrap gap-2 mb-4 mt-3">
           {QUICK_SHOP.map((item) => (
             <button
               key={item}
               type="button"
-              onClick={() => addItem.mutate({ name: item })}
-              className="px-3 py-1.5 text-sm border rounded-full hover:bg-green-50 hover:border-green-200"
+              onClick={() => handleQuickAdd(item)}
+              className="px-3 py-1.5 text-sm border rounded-full hover:bg-green-50 hover:border-green-200 touch-manipulation"
             >
               + {item}
             </button>
           ))}
         </div>
         <form onSubmit={handleAdd} className="space-y-3">
-          <ShareScopePicker
-            feature="shopping"
-            value={shareScope}
-            onChange={setShareScope}
-            membersCount={members.length}
-          />
           <div className="flex flex-wrap gap-1">
             {SHOP_CATEGORIES.map((c) => (
               <button

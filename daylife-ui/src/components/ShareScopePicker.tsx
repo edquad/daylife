@@ -5,7 +5,7 @@ import { useGitHubSync } from '../features/sync/GitHubSyncContext';
 import { VisibilityToggle } from './VisibilityToggle';
 import { defaultVisibility } from '../lib/privacy';
 import type { ItemVisibility } from '../lib/privacy';
-import { activeShareConnections, connectionLabel, type ShareScope } from '../lib/shareScope';
+import { activeShareConnections, connectionLabel, saveShareScope, type ShareScope } from '../lib/shareScope';
 import { cn } from '../lib/utils';
 import { UserRound, Users } from 'lucide-react';
 
@@ -40,34 +40,40 @@ export function ShareScopePicker({ feature, value, onChange, membersCount, disab
     }
   }, [value, shareConnections, onChange]);
 
+  const pickScope = (scope: ShareScope) => {
+    saveShareScope(feature, scope);
+    onChange(scope);
+  };
+
   const setPersonal = (visibility: ItemVisibility) => {
-    onChange({ kind: 'personal', visibility });
+    pickScope({ kind: 'personal', visibility });
   };
 
   const setConnection = (spaceId: string) => {
-    onChange({ kind: 'connection', spaceId });
+    pickScope({ kind: 'connection', spaceId });
   };
 
   if (!canShare && !showHousehold) return null;
 
   return (
-    <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/80 p-3">
+    <div className="space-y-3 rounded-xl border border-violet-100 bg-gradient-to-br from-gray-50 to-violet-50/40 p-3">
       <div>
-        <label className="block text-sm font-medium mb-1.5">Save as</label>
+        <label className="block text-sm font-medium mb-1">Where should this go?</label>
+        <p className="text-xs text-gray-500 mb-2">Just yours, or shared with someone you connected with.</p>
         <div className="flex gap-2">
           <button
             type="button"
             disabled={disabled}
             onClick={() => setPersonal(value.kind === 'personal' ? value.visibility : defaultVisibility(membersCount))}
             className={cn(
-              'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm border',
+              'flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm border touch-manipulation',
               value.kind === 'personal'
-                ? 'bg-white border-brand-300 text-brand-800 font-medium shadow-sm'
-                : 'border-gray-200 text-gray-500',
+                ? 'bg-white border-brand-300 text-brand-800 font-semibold shadow-sm ring-1 ring-brand-100'
+                : 'border-gray-200 text-gray-500 bg-white/70',
             )}
           >
             <UserRound size={15} />
-            Personal
+            Just mine
           </button>
           {canShare && (
             <button
@@ -81,14 +87,14 @@ export function ShareScopePicker({ feature, value, onChange, membersCount, disab
                 )
               }
               className={cn(
-                'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm border',
+                'flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm border touch-manipulation',
                 value.kind === 'connection'
-                  ? 'bg-violet-50 border-violet-300 text-violet-900 font-medium shadow-sm'
-                  : 'border-gray-200 text-gray-500',
+                  ? 'bg-violet-600 border-violet-600 text-white font-semibold shadow-sm'
+                  : 'border-violet-200 text-violet-700 bg-violet-50/80',
               )}
             >
               <Users size={15} />
-              Share
+              Shared
             </button>
           )}
         </div>

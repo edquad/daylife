@@ -2065,7 +2065,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     return conn as T;
   }
 
-  const connectionActionMatch = route.match(/^\/connections\/([^/]+)\/(accept|decline)$/);
+  const connectionActionMatch = route.match(/^\/connections\/([^/]+)\/(accept|decline|cancel)$/);
   if (connectionActionMatch && method === 'POST') {
     const inviteId = connectionActionMatch[1];
     const action = connectionActionMatch[2];
@@ -2075,6 +2075,17 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     const conn = data.connections.find((c) => c.inviteId === inviteId);
     if (!conn) throw new ApiError(404, 'Invite not found');
     const me = data.users.find((u) => u.id === sessionId);
+    if (action === 'cancel') {
+      if (!conn.initiatedByMe || conn.status !== 'pending_sent') {
+        throw new ApiError(400, 'Only pending invites you sent can be cancelled');
+      }
+      const inbox = await fetchInbox(conn.partnerAccountId);
+      inbox.invites = inbox.invites.filter((i) => i.id !== inviteId);
+      await pushInbox(conn.partnerAccountId, inbox);
+      data.connections = data.connections.filter((c) => c.inviteId !== inviteId);
+      saveData(data);
+      return { cancelled: true, inviteId } as T;
+    }
     if (action === 'decline') {
       conn.status = 'declined';
       saveData(data);

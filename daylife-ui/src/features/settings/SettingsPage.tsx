@@ -13,7 +13,7 @@ import {
   type HouseholdType,
 } from '../../lib/household';
 import { toast } from '../../components/Toaster';
-import { Heart, Download, Upload, Trash2, UserPlus, LogOut, Cloud, RefreshCw, Smartphone, Lock, KeyRound } from 'lucide-react';
+import { Heart, Download, Upload, Trash2, UserPlus, LogOut, Cloud, RefreshCw, Smartphone, Lock, KeyRound, Bell } from 'lucide-react';
 import { usePwaInstall } from '../../hooks/usePwaInstall';
 import { AndroidInstallSteps, IosInstallSteps } from '../../components/InstallInstructions';
 import { PinModal } from '../../components/PinModal';
@@ -21,6 +21,11 @@ import { RecoveryCodeModal } from '../../components/RecoveryCodeModal';
 import { ApiError } from '../../lib/api';
 import { APP_NAME, APP_TAGLINE } from '../../lib/brand';
 import { forceAppRefresh } from '../../lib/appUpdate';
+import {
+  notificationsPermission,
+  notificationsSupported,
+  requestNotificationPermission,
+} from '../../lib/pendingNotifications';
 
 export function SettingsPage() {
   const { user, logout, refreshUser } = useAuth();
@@ -35,6 +40,7 @@ export function SettingsPage() {
   const [pinError, setPinError] = useState('');
   const [currentPinDraft, setCurrentPinDraft] = useState('');
   const [newRecoveryCode, setNewRecoveryCode] = useState<string | null>(null);
+  const [notifPermission, setNotifPermission] = useState(notificationsPermission);
 
   const { data: household } = useQuery<HouseholdInfo>({
     queryKey: ['household'],
@@ -192,6 +198,40 @@ export function SettingsPage() {
           className="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50">
           Save profile
         </button>
+      </section>
+
+      <section className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border-2 border-amber-200 shadow-sm p-6 space-y-4">
+        <h2 className="font-semibold flex items-center gap-2 text-amber-950">
+          <Bell size={18} className="text-amber-600" /> Invite alerts
+        </h2>
+        <p className="text-sm text-amber-900/80">
+          Get a ping when someone invites you to share — badge on Share tab + phone notification.
+        </p>
+        {!notificationsSupported() ? (
+          <p className="text-sm text-gray-500">Notifications are not supported in this browser.</p>
+        ) : notifPermission === 'granted' ? (
+          <p className="text-sm text-green-800 bg-green-100 border border-green-200 rounded-lg px-3 py-2">
+            Alerts are on. You&apos;ll get notified for new invites.
+          </p>
+        ) : notifPermission === 'denied' ? (
+          <p className="text-sm text-amber-900 bg-amber-100 border border-amber-200 rounded-lg px-3 py-2">
+            Alerts are blocked. Open your phone settings → allow notifications for {APP_NAME} / this site.
+          </p>
+        ) : (
+          <button
+            type="button"
+            onClick={() =>
+              requestNotificationPermission().then((ok) => {
+                setNotifPermission(notificationsPermission());
+                if (ok) toast.success('Invite alerts turned on');
+                else toast.error('Could not enable alerts — check browser settings');
+              })
+            }
+            className="w-full sm:w-auto px-5 py-3 bg-amber-500 text-white rounded-xl text-sm font-semibold hover:bg-amber-600 touch-manipulation shadow-sm"
+          >
+            Turn on invite alerts
+          </button>
+        )}
       </section>
 
       <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">

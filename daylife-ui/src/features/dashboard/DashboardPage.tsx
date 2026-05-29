@@ -43,6 +43,8 @@ import { DailyRhythmSection } from '../../components/DailyRhythmSection';
 import { WelcomeDayCard } from '../../components/WelcomeDayCard';
 import { EveningReflectionSection } from '../../components/EveningReflectionSection';
 import { HouseholdDayView } from '../../components/HouseholdDayView';
+import { useConnections } from '../../hooks/useConnections';
+import { useInviteActions, useInviteAcceptedNotifier } from '../../hooks/useInviteActions';
 import { getDayPhase, phaseGreeting, phaseHint } from '../../lib/dailyFlow';
 
 interface PersonSummary {
@@ -115,52 +117,11 @@ export function DashboardPage() {
     queryFn: () => api.get(`/shared/summary?date=${selectedDate}`),
   });
 
-  const { data: connections = [] } = useQuery<Connection[]>({
-    queryKey: ['connections'],
-    queryFn: async () => {
-      await api.post('/connections/sync-inbox').catch(() => undefined);
-      return api.get('/connections');
-    },
-  });
+  const { data: connections = [] } = useConnections();
+  useInviteAcceptedNotifier(connections);
 
   const pendingInvites = connections.filter((c) => c.status === 'pending_received');
-  const [actingInviteId, setActingInviteId] = React.useState<string | null>(null);
-
-  const acceptInvite = useMutation({
-    mutationFn: (inviteId: string) => api.post(`/connections/${inviteId}/accept`),
-    onMutate: async (inviteId) => {
-      setActingInviteId(inviteId);
-      await queryClient.cancelQueries({ queryKey: ['connections'] });
-      const prev = queryClient.getQueryData<Connection[]>(['connections']);
-      queryClient.setQueryData<Connection[]>(['connections'], (old) =>
-        old?.filter((c) => c.inviteId !== inviteId),
-      );
-      return { prev };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['connections'] });
-      queryClient.invalidateQueries({ queryKey: ['shared-summary'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-    },
-    onSettled: () => setActingInviteId(null),
-  });
-
-  const declineInvite = useMutation({
-    mutationFn: (inviteId: string) => api.post(`/connections/${inviteId}/decline`),
-    onMutate: async (inviteId) => {
-      setActingInviteId(inviteId);
-      await queryClient.cancelQueries({ queryKey: ['connections'] });
-      const prev = queryClient.getQueryData<Connection[]>(['connections']);
-      queryClient.setQueryData<Connection[]>(['connections'], (old) =>
-        old?.filter((c) => c.inviteId !== inviteId),
-      );
-      return { prev };
-    },
-    onSettled: () => {
-      setActingInviteId(null);
-      queryClient.invalidateQueries({ queryKey: ['connections'] });
-    },
-  });
+  const { accept: acceptInvite, decline: declineInvite, actingInviteId } = useInviteActions();
 
   const toggleShopping = useMutation({
     mutationFn: (id: string) => api.patch(`/shopping/${id}`),

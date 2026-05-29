@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../features/auth/AuthContext';
 import { useGitHubSync } from '../../features/sync/GitHubSyncContext';
-import { api, Connection } from '../../lib/api';
+import { useConnections } from '../../hooks/useConnections';
 import { DayPicker } from '../DayPicker';
 import { InstallAppBanner } from '../InstallAppBanner';
+import { PendingNotificationsPrompt } from '../PendingNotificationsPrompt';
+import { PendingNotificationsWatcher } from '../PendingNotificationsWatcher';
 import { AppLogo } from '../AppLogo';
 import { APP_NAME, APP_TAGLINE } from '../../lib/brand';
 import {
@@ -60,15 +61,7 @@ export function AppShell() {
   const [mobileAddOpen, setMobileAddOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
 
-  const { data: connections = [] } = useQuery<Connection[]>({
-    queryKey: ['connections'],
-    queryFn: async () => {
-      await api.post('/connections/sync-inbox').catch(() => undefined);
-      return api.get('/connections');
-    },
-    enabled: Boolean(user),
-    staleTime: 30_000,
-  });
+  const { data: connections = [] } = useConnections();
   const pendingInviteCount = connections.filter((c) => c.status === 'pending_received').length;
 
   const navItems = navGroups.flatMap((g) => g.items);
@@ -100,6 +93,7 @@ export function AppShell() {
 
   return (
     <div className="min-h-dvh flex">
+      <PendingNotificationsWatcher />
       {pendingRecoveryCode && (
         <RecoveryCodeModal code={pendingRecoveryCode} onClose={acknowledgeRecoveryCode} />
       )}
@@ -216,6 +210,7 @@ export function AppShell() {
             <DayPicker compact className="justify-center" />
           </div>
           <InstallAppBanner />
+          <PendingNotificationsPrompt />
         </header>
         <main className="flex-1 overflow-y-auto overflow-x-hidden pb-20 lg:pb-6"><Outlet /></main>
       </div>

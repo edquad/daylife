@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
   api,
@@ -11,6 +11,8 @@ import {
 } from '../../lib/api';
 import { useAuth } from '../auth/AuthContext';
 import { useGitHubSync } from '../sync/GitHubSyncContext';
+import { useConnections } from '../../hooks/useConnections';
+import { useInviteActions } from '../../hooks/useInviteActions';
 import { toast } from '../../components/Toaster';
 import { ApiError } from '../../lib/api';
 import {
@@ -32,6 +34,8 @@ import {
   Sparkles,
   Search,
   Tag,
+  ChevronDown,
+  ChevronUp,
   UserRound,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -59,10 +63,6 @@ const SHARE_PRESETS: Array<{ id: string; label: string; features: ShareFeature[]
 ];
 
 const GROUP_SUGGESTIONS = ['Family', 'Friends', 'Work', 'Roommates', 'Partner'];
-
-function featureSummary(features: ShareFeature[]): string {
-  return features.map((f) => SHARE_FEATURE_LABELS[f]?.title || f).join(', ');
-}
 
 function groupSelectionState(features: ShareFeature[], selected: Set<ShareFeature>): 'all' | 'some' | 'none' {
   const on = features.filter((f) => selected.has(f)).length;
@@ -98,21 +98,25 @@ export function ConnectionsPage() {
   );
   const [refreshing, setRefreshing] = useState(false);
   const [sending, setSending] = useState(false);
-  const [actingInviteId, setActingInviteId] = useState<string | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(true);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  const { data: connections = [], isLoading, refetch } = useQuery<Connection[]>({
-    queryKey: ['connections'],
-    queryFn: async () => {
-      await api.post('/connections/sync-inbox');
-      return api.get('/connections');
-    },
-    enabled: cloudReady,
-  });
+  const { data: connections = [], isLoading, refetch } = useConnections();
+  const { accept, decline, cancel, actingInviteId } = useInviteActions();
+
+  const pendingReceived = connections.filter((c) => c.status === 'pending_received');
+  const pendingSent = connections.filter((c) => c.status === 'pending_sent');
+  const active = connections.filter((c) => c.status === 'active');
+
+  useEffect(() => {
+    if (active.length > 0 && pendingReceived.length === 0) {
+      setInviteOpen(false);
+    }
+  }, [active.length, pendingReceived.length]);
 
   const { data: searchResults } = useQuery<{ usernames: string[] }>({
     queryKey: ['account-usernames-search', debouncedSearch],
@@ -136,57 +140,6 @@ export function ConnectionsPage() {
       api.put<Connection>(`/connections/${id}/label`, { groupLabel: label }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['connections'] }),
   });
-
-  const accept = useMutation({
-    mutationFn: (inviteId: string) => api.post<Connection>(`/connections/${inviteId}/accept`),
-    onMutate: async (inviteId) => {
-      setActingInviteId(inviteId);
-      await queryClient.cancelQueries({ queryKey: ['connections'] });
-      const prev = queryClient.getQueryData<Connection[]>(['connections']);
-      queryClient.setQueryData<Connection[]>(['connections'], (old) =>
-        old?.filter((c) => c.inviteId !== inviteId),
-      );
-      return { prev };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['connections'] });
-      queryClient.invalidateQueries({ queryKey: ['shared-summary'] });
-      queryClient.invalidateQueries({ queryKey: ['shared-expenses'] });
-      queryClient.invalidateQueries({ queryKey: ['shared-shopping'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      toast.success('Connected!');
-    },
-    onError: (err: unknown, _id, ctx) => {
-      if (ctx?.prev) queryClient.setQueryData(['connections'], ctx.prev);
-      toast.error(err instanceof ApiError ? err.message : (err as Error).message);
-    },
-    onSettled: () => setActingInviteId(null),
-  });
-
-  const decline = useMutation({
-    mutationFn: (inviteId: string) => api.post<Connection>(`/connections/${inviteId}/decline`),
-    onMutate: async (inviteId) => {
-      setActingInviteId(inviteId);
-      await queryClient.cancelQueries({ queryKey: ['connections'] });
-      const prev = queryClient.getQueryData<Connection[]>(['connections']);
-      queryClient.setQueryData<Connection[]>(['connections'], (old) =>
-        old?.filter((c) => c.inviteId !== inviteId),
-      );
-      return { prev };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['connections'] });
-      toast.success('Invite declined');
-    },
-    onError: (_err, _id, ctx) => {
-      if (ctx?.prev) queryClient.setQueryData(['connections'], ctx.prev);
-    },
-    onSettled: () => setActingInviteId(null),
-  });
-
-  const pendingReceived = connections.filter((c) => c.status === 'pending_received');
-  const pendingSent = connections.filter((c) => c.status === 'pending_sent');
-  const active = connections.filter((c) => c.status === 'active');
 
   const filteredActive = useMemo(() => {
     const q = normalizeUsername(connectionFilter);
@@ -250,17 +203,20 @@ export function ConnectionsPage() {
     }
 
     setSending(true);
+    const results = await Promise.allSettled(
+      targets.map((target) => inviteOne(target, groupLabel)),
+    );
     let ok = 0;
     const failed: string[] = [];
-    try {
-      for (const target of targets) {
-        try {
-          await inviteOne(target, groupLabel);
-          ok += 1;
-        } catch (err) {
-          failed.push(`${target}: ${err instanceof ApiError ? err.message : (err as Error).message}`);
-        }
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.status === 'fulfilled') ok += 1;
+      else {
+        const err = result.reason;
+        failed.push(`${targets[i]}: ${err instanceof ApiError ? err.message : (err as Error).message}`);
       }
+    }
+    try {
       if (ok > 0) {
         setUsername('');
         setBatchUsernames('');
@@ -316,31 +272,140 @@ export function ConnectionsPage() {
       />
 
       {user?.username && (
-        <div className="flex items-start gap-2 px-3 py-2 bg-gray-50 border rounded-xl text-sm">
-          <UserRound size={16} className="text-gray-400 shrink-0 mt-0.5" />
-          <span className="text-gray-600 break-words min-w-0">
-            Your username: <strong className="text-gray-900">@{user.username}</strong> — share this so others can invite you
+        <div className="flex items-start gap-2 px-3 py-2.5 bg-violet-50 border border-violet-100 rounded-xl text-sm">
+          <UserRound size={16} className="text-violet-500 shrink-0 mt-0.5" />
+          <span className="text-violet-900 break-words min-w-0">
+            Your username: <strong className="text-violet-950">@{user.username}</strong>
+            <span className="text-violet-700"> — tell friends this so they can invite you</span>
           </span>
         </div>
       )}
 
-      <section className="bg-violet-50 border border-violet-100 rounded-xl px-4 py-3 text-sm text-violet-900">
-        <p className="font-medium">What gets shared?</p>
-        <p className="mt-1 text-xs text-violet-800">
-          Each invite is custom. If someone picks <strong>Tasks only</strong>, you will <em>not</em> see their expenses or shopping.
-          If they pick <strong>Share all</strong>, you see everything listed below.
-        </p>
-        <ul className="mt-2 space-y-1 text-xs text-violet-800 list-disc pl-4">
-          <li>Each person gets their <strong>own</strong> share link with you (not one big group chat).</li>
-          <li>Invite family one by one — use the same group tag like &quot;Family&quot; to find them easily.</li>
-          <li>Type a username to search — we never show all users (works even with 100+ accounts).</li>
-        </ul>
-      </section>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="font-semibold text-gray-900">Your people</h2>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={!cloudReady || refreshing}
+          className="text-xs text-brand-600 flex items-center gap-1 touch-manipulation"
+        >
+          <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} /> Refresh
+        </button>
+      </div>
 
-      <section className="bg-white rounded-2xl border shadow-sm p-5 space-y-4">
-        <h2 className="font-semibold flex items-center gap-2">
-          <UserPlus size={18} className="text-brand-600" /> Send invite
-        </h2>
+      {active.length > 3 && (
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            value={connectionFilter}
+            onChange={(e) => setConnectionFilter(e.target.value)}
+            placeholder="Filter connections…"
+            className="w-full pl-8 pr-3 py-2 border rounded-xl text-sm"
+          />
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="py-12 text-center text-gray-400 text-sm">Loading…</div>
+      ) : (
+        <div className="space-y-4">
+          {pendingSent.length > 0 && (
+            <section className="bg-white border border-amber-100 rounded-2xl p-4">
+              <h3 className="font-medium text-sm mb-2 text-amber-900">Waiting for them to accept ({pendingSent.length})</h3>
+              <div className="space-y-2">
+                {pendingSent.map((c) => (
+                  <div key={c.id} className="flex items-start justify-between gap-2 py-1.5 border-b border-gray-50 last:border-0">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">@{c.partnerUsername}</p>
+                      <p className="text-xs text-gray-500 truncate">{shareScopeLabel(c.features)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => cancel.mutate(c.inviteId)}
+                      disabled={actingInviteId === c.inviteId}
+                      className="text-xs text-red-600 shrink-0 px-2 py-1 rounded-lg border border-red-100 touch-manipulation"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {activeByGroup.map(([group, list]) => (
+            <section key={group} className="bg-white border rounded-2xl overflow-hidden shadow-sm">
+              <div className="px-4 py-2.5 bg-gradient-to-r from-violet-50 to-fuchsia-50 border-b flex items-center justify-between">
+                <h3 className="font-medium text-sm text-gray-800">
+                  {group} <span className="text-gray-400 font-normal">({list.length})</span>
+                </h3>
+              </div>
+              <div className="divide-y">
+                {list.map((c) => (
+                  <div key={c.id} className="p-4 space-y-2">
+                    <div className="flex justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-sm">
+                          @{c.partnerUsername}
+                          {c.partnerName && (
+                            <span className="text-gray-400 font-normal ml-1">({c.partnerName})</span>
+                          )}
+                        </p>
+                        <p className="text-xs text-violet-600 mt-0.5">
+                          Together: <strong>{shareScopeLabel(c.features)}</strong>
+                        </p>
+                      </div>
+                      <Link to="/" className="text-xs text-brand-600 shrink-0 flex items-center gap-0.5 touch-manipulation">
+                        Today <ArrowRight size={12} />
+                      </Link>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        defaultValue={c.groupLabel || ''}
+                        placeholder="Group tag"
+                        onBlur={(e) => {
+                          const next = e.target.value.trim();
+                          if (next !== (c.groupLabel || '')) {
+                            updateLabel.mutate({ id: c.id, groupLabel: next });
+                          }
+                        }}
+                        className="flex-1 px-2 py-1 border rounded-lg text-xs"
+                      />
+                    </div>
+                    <SharedFeatureLinks features={c.features} />
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+
+          {connections.length === 0 && pendingReceived.length === 0 && (
+            <div className="text-center py-10 px-4 rounded-2xl border border-dashed bg-gray-50/50">
+              <Users size={32} className="mx-auto text-gray-300 mb-3" />
+              <p className="text-sm font-medium text-gray-600">No connections yet</p>
+              <p className="text-xs text-gray-400 mt-1">Send an invite below — it feels just like your own app, shared with them.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <section className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setInviteOpen((v) => !v)}
+          className="w-full flex items-center justify-between gap-2 p-4 text-left touch-manipulation"
+        >
+          <h2 className="font-semibold flex items-center gap-2">
+            <UserPlus size={18} className="text-brand-600" /> Invite someone
+          </h2>
+          {inviteOpen ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
+        </button>
+
+        {inviteOpen && (
+          <div className="px-5 pb-5 space-y-4 border-t">
+            <p className="text-xs text-gray-500 pt-3">
+              Pick exactly what to share — tasks only, money, or everything. Notes &amp; Dreams are off by default.
+            </p>
 
         <div className="flex gap-2">
           <button
@@ -479,11 +544,9 @@ export function ConnectionsPage() {
             <p className="text-xs font-medium text-gray-500 mb-2">
               What to share <span className="text-gray-400">({selected.size} selected)</span>
             </p>
-            {selected.size <= 2 && (
-              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5 mb-2">
-                Partner will only see: <strong>{shareScopeLabel(Array.from(selected))}</strong>
-              </p>
-            )}
+            <p className="text-xs text-violet-800 bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-2 mb-2">
+              They will see: <strong>{shareScopeLabel(Array.from(selected))}</strong>
+            </p>
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
               {SHARE_FEATURE_GROUPS.map((group) => (
                 <div key={group.title} className="rounded-xl border p-2.5 bg-gray-50/80">
@@ -527,118 +590,9 @@ export function ConnectionsPage() {
             {batchMode ? 'Send invites' : 'Send invite'}
           </button>
         </form>
+          </div>
+        )}
       </section>
-
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="font-semibold">Your connections</h2>
-        <button
-          type="button"
-          onClick={handleRefresh}
-          disabled={!cloudReady || refreshing}
-          className="text-xs text-brand-600 flex items-center gap-1"
-        >
-          <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} /> Refresh
-        </button>
-      </div>
-
-      {active.length > 3 && (
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            value={connectionFilter}
-            onChange={(e) => setConnectionFilter(e.target.value)}
-            placeholder="Filter connections…"
-            className="w-full pl-8 pr-3 py-2 border rounded-xl text-sm"
-          />
-        </div>
-      )}
-
-      {isLoading ? (
-        <div className="py-12 text-center text-gray-400 text-sm">Loading…</div>
-      ) : (
-        <div className="space-y-4">
-          {pendingReceived.length > 0 && (
-            <p className="text-xs text-gray-500">
-              Pending invites also appear at the top of this page and on Today.
-            </p>
-          )}
-
-          {pendingSent.length > 0 && (
-            <section className="bg-white border rounded-2xl p-4">
-              <h3 className="font-medium text-sm mb-2">Waiting for accept ({pendingSent.length})</h3>
-              <div className="space-y-1 max-h-40 overflow-y-auto">
-                {pendingSent.map((c) => (
-                  <div key={c.id} className="text-sm flex justify-between gap-2 py-1">
-                    <span>
-                      @{c.partnerUsername}
-                      {c.groupLabel && (
-                        <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">
-                          {c.groupLabel}
-                        </span>
-                      )}
-                    </span>
-                    <span className="text-gray-400 text-xs truncate">{featureSummary(c.features)}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {activeByGroup.map(([group, list]) => (
-            <section key={group} className="bg-white border rounded-2xl overflow-hidden">
-              <div className="px-4 py-2.5 bg-gray-50 border-b flex items-center justify-between">
-                <h3 className="font-medium text-sm text-gray-800">
-                  {group} <span className="text-gray-400 font-normal">({list.length})</span>
-                </h3>
-              </div>
-              <div className="divide-y">
-                {list.map((c) => (
-                  <div key={c.id} className="p-4 space-y-2">
-                    <div className="flex justify-between gap-2">
-                      <div>
-                        <p className="font-medium text-sm">
-                          @{c.partnerUsername}
-                          {c.partnerName && (
-                            <span className="text-gray-400 font-normal ml-1">({c.partnerName})</span>
-                          )}
-                        </p>
-                        <p className="text-xs text-violet-600 mt-0.5">
-                          Shared: <strong>{shareScopeLabel(c.features)}</strong>
-                        </p>
-                      </div>
-                      <Link to="/" className="text-xs text-brand-600 shrink-0 flex items-center gap-0.5">
-                        Today <ArrowRight size={12} />
-                      </Link>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        defaultValue={c.groupLabel || ''}
-                        placeholder="Group tag"
-                        onBlur={(e) => {
-                          const next = e.target.value.trim();
-                          if (next !== (c.groupLabel || '')) {
-                            updateLabel.mutate({ id: c.id, groupLabel: next });
-                          }
-                        }}
-                        className="flex-1 px-2 py-1 border rounded-lg text-xs"
-                      />
-                    </div>
-                    <SharedFeatureLinks features={c.features} />
-                  </div>
-                ))}
-              </div>
-            </section>
-          ))}
-
-          {connections.length === 0 && (
-            <div className="text-center py-10 px-4 rounded-2xl border border-dashed bg-gray-50/50">
-              <Users size={32} className="mx-auto text-gray-300 mb-3" />
-              <p className="text-sm font-medium text-gray-600">No connections yet</p>
-              <p className="text-xs text-gray-400 mt-1">Search a username above and send an invite.</p>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
