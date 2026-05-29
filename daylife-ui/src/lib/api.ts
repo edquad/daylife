@@ -2079,7 +2079,6 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     conn.status = 'active';
     conn.sharedSpaceId = spaceId;
     saveData(data);
-    await flushCloudSyncNow();
     const inbox = await fetchInbox(accountId);
     inbox.invites = inbox.invites.filter((i) => i.id !== inviteId);
     await pushInbox(accountId, inbox);

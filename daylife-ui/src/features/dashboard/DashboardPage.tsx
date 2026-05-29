@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { AREA_COLORS, AREA_LABELS, memberGridClass } from '../../lib/utils';
 import { SharedFeatureLinks } from '../../components/SharedFeatureLinks';
+import { PendingInvitesBanner, shareScopeLabel } from '../../components/PendingInvitesBanner';
 import { TaskFormModal } from '../tasks/TaskFormModal';
 
 interface PersonSummary {
@@ -109,7 +110,49 @@ export function DashboardPage() {
 
   const { data: connections = [] } = useQuery<Connection[]>({
     queryKey: ['connections'],
-    queryFn: () => api.get('/connections'),
+    queryFn: async () => {
+      await api.post('/connections/sync-inbox').catch(() => undefined);
+      return api.get('/connections');
+    },
+  });
+
+  const pendingInvites = connections.filter((c) => c.status === 'pending_received');
+  const [actingInviteId, setActingInviteId] = React.useState<string | null>(null);
+
+  const acceptInvite = useMutation({
+    mutationFn: (inviteId: string) => api.post(`/connections/${inviteId}/accept`),
+    onMutate: async (inviteId) => {
+      setActingInviteId(inviteId);
+      await queryClient.cancelQueries({ queryKey: ['connections'] });
+      const prev = queryClient.getQueryData<Connection[]>(['connections']);
+      queryClient.setQueryData<Connection[]>(['connections'], (old) =>
+        old?.filter((c) => c.inviteId !== inviteId),
+      );
+      return { prev };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['connections'] });
+      queryClient.invalidateQueries({ queryKey: ['shared-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onSettled: () => setActingInviteId(null),
+  });
+
+  const declineInvite = useMutation({
+    mutationFn: (inviteId: string) => api.post(`/connections/${inviteId}/decline`),
+    onMutate: async (inviteId) => {
+      setActingInviteId(inviteId);
+      await queryClient.cancelQueries({ queryKey: ['connections'] });
+      const prev = queryClient.getQueryData<Connection[]>(['connections']);
+      queryClient.setQueryData<Connection[]>(['connections'], (old) =>
+        old?.filter((c) => c.inviteId !== inviteId),
+      );
+      return { prev };
+    },
+    onSettled: () => {
+      setActingInviteId(null);
+      queryClient.invalidateQueries({ queryKey: ['connections'] });
+    },
   });
 
   const toggleShopping = useMutation({
@@ -193,7 +236,7 @@ export function DashboardPage() {
         icon={LayoutDashboard}
         title={formatDayHeading(selectedDate)}
         subtitle={isToday && user?.name ? `Good day, ${user.name.split(' ')[0]} 👋` : 'Your day at a glance'}
-        hint="Check tasks here · use Lists & habits for shopping · Dreams & goals for long-term vision"
+        hint="Start with your dreams, then check today's list"
         action={
           todayTotal > 0 ? (
             <div className="text-right shrink-0">
@@ -203,6 +246,60 @@ export function DashboardPage() {
           ) : undefined
         }
       />
+
+      <PendingInvitesBanner
+        invites={pendingInvites}
+        onAccept={(id) => acceptInvite.mutate(id)}
+        onDecline={(id) => declineInvite.mutate(id)}
+        acceptingId={actingInviteId}
+      />
+
+      <section className="rounded-2xl overflow-hidden border border-violet-200 bg-gradient-to-br from-violet-600 via-fuchsia-600 to-amber-500 text-white shadow-md">
+        <div className="p-4 sm:p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-white/80">
+                Your why · read this first
+              </p>
+              <h2 className="text-lg sm:text-xl font-bold mt-1">Dreams & goals</h2>
+              <p className="text-sm text-white/90 mt-1 max-w-md">
+                See what you&apos;re building toward, then go through your day.
+              </p>
+            </div>
+            <Link
+              to="/vision"
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 text-xs font-semibold backdrop-blur"
+            >
+              Open board
+            </Link>
+          </div>
+
+          {visionPreview.length === 0 ? (
+            <Link
+              to="/vision"
+              className="mt-4 block text-center py-3 rounded-xl bg-white/15 hover:bg-white/25 text-sm font-medium"
+            >
+              Add your first dream →
+            </Link>
+          ) : (
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {visionPreview.slice(0, 3).map((v) => (
+                <Link
+                  key={v.id}
+                  to="/vision"
+                  className="rounded-xl bg-white/15 hover:bg-white/25 backdrop-blur p-3 min-w-0"
+                >
+                  <span className="text-2xl">{v.emoji || '✨'}</span>
+                  <p className="font-semibold text-sm mt-1 truncate">{v.title}</p>
+                  {v.caption && (
+                    <p className="text-xs text-white/85 mt-0.5 line-clamp-2">{v.caption}</p>
+                  )}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
 
       {(data?.overdueCount ?? 0) > 0 && isToday && (
         <Link
@@ -367,35 +464,6 @@ export function DashboardPage() {
             </ul>
           )}
         </DaySection>
-
-        <DaySection
-          accent="violet"
-          icon={Star}
-          title="Dreams & goals"
-          subtitle="Long-term vision — not daily tasks"
-          action={
-            <Link to="/vision" className="text-xs font-medium text-violet-600 hover:underline">
-              Vision board →
-            </Link>
-          }
-        >
-          {visionPreview.length === 0 ? (
-            <p className="text-sm text-gray-500">Save travel plans, career goals, or things you&apos;re saving for.</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {visionPreview.slice(0, 3).map((v) => (
-                <Link
-                  key={v.id}
-                  to="/vision"
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-100 text-violet-800 text-xs font-medium"
-                >
-                  <span>{v.emoji || '✨'}</span>
-                  <span className="truncate max-w-[8rem]">{v.title}</span>
-                </Link>
-              ))}
-            </div>
-          )}
-        </DaySection>
       </div>
 
       <DaySection
@@ -436,12 +504,20 @@ export function DashboardPage() {
         )}
       </DaySection>
 
-      {hasActiveShare && sharedColumns.length === 0 && activeConnections.length > 0 && (
-        <div className="px-3 py-2.5 rounded-xl bg-violet-50 border border-violet-100 text-sm">
-          <p className="text-violet-900 font-medium">
-            Sharing with @{activeConnections[0].partnerUsername}
-          </p>
-          <SharedFeatureLinks features={activeConnections[0].features} className="mt-2" />
+      {hasActiveShare && activeConnections.length > 0 && (
+        <div className="px-3 py-2.5 rounded-xl bg-violet-50 border border-violet-100 text-sm space-y-2">
+          {activeConnections.map((conn) => (
+            <div key={conn.id}>
+              <p className="text-violet-900 font-medium break-words">
+                Sharing with @{conn.partnerUsername}:{' '}
+                <span className="text-violet-700">{shareScopeLabel(conn.features)}</span>
+              </p>
+              {sharedColumns.length === 0 && conn.features.includes('tasks') && conn.features.length === 1 && (
+                <p className="text-xs text-violet-600 mt-1">Only shared tasks appear on Today — not expenses or shopping.</p>
+              )}
+              <SharedFeatureLinks features={conn.features} className="mt-2" />
+            </div>
+          ))}
         </div>
       )}
 

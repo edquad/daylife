@@ -114,15 +114,15 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-dvh flex items-center justify-center bg-gradient-to-br from-brand-50 via-white to-accent-50 px-4 py-8">
-      <div className="w-full max-w-md">
+    <div className="min-h-dvh min-h-[100dvh] flex items-start sm:items-center justify-center bg-gradient-to-br from-brand-50 via-white to-accent-50 px-3 sm:px-4 py-6 sm:py-8 overflow-y-auto overflow-x-hidden">
+      <div className="w-full max-w-md my-auto">
         <div className="text-center mb-8">
           <AppLogo size="lg" className="mx-auto mb-4" />
           <h1 className="text-3xl font-bold text-brand-700">{APP_NAME}</h1>
           <p className="text-gray-500 mt-1">{APP_TAGLINE}</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border p-6">
+        <div className="bg-white rounded-2xl shadow-sm border p-4 sm:p-6 overflow-hidden">
           {tab !== 'forgot' ? (
             <div className="flex rounded-xl bg-gray-100 p-1 mb-6">
               <button
@@ -174,7 +174,7 @@ export function LoginPage() {
                 onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
                 placeholder="yourname"
                 autoComplete="username"
-                className="w-full px-3 py-3 border rounded-xl outline-none focus:ring-2 focus:ring-brand-500"
+                className="w-full px-3 py-3 border rounded-xl outline-none focus:ring-2 focus:ring-brand-500 text-base max-w-full"
                 required
                 autoFocus
               />
@@ -191,7 +191,7 @@ export function LoginPage() {
                   onChange={(e) => setName(e.target.value)}
                   placeholder="How we greet you"
                   autoComplete="name"
-                  className="w-full px-3 py-3 border rounded-xl outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3 py-3 border rounded-xl outline-none focus:ring-2 focus:ring-brand-500 text-base max-w-full"
                   required
                 />
               </div>

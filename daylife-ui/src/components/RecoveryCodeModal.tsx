@@ -27,26 +27,26 @@ export function RecoveryCodeModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-4">
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-3 sm:p-4 overflow-y-auto">
       <div className="fixed inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-white w-full sm:max-w-md rounded-2xl shadow-xl z-10 p-6">
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div className="flex items-start gap-3">
+      <div className="relative bg-white w-full sm:max-w-md rounded-2xl shadow-xl z-10 p-4 sm:p-6 max-h-[min(90dvh,640px)] overflow-y-auto">
+        <div className="flex items-start justify-between gap-2 mb-4">
+          <div className="flex items-start gap-3 min-w-0">
             <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
               <KeyRound size={20} className="text-amber-700" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2 className="text-lg font-semibold">{title}</h2>
               <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close">
+          <button type="button" onClick={onClose} aria-label="Close" className="shrink-0 p-1">
             <X size={20} />
           </button>
         </div>
 
-        <div className="bg-gray-50 border rounded-xl p-4 text-center">
-          <p className="text-2xl font-bold tracking-widest text-gray-900 font-mono">{code}</p>
+        <div className="bg-gray-50 border rounded-xl p-3 sm:p-4 text-center overflow-x-auto">
+          <p className="text-lg sm:text-2xl font-bold tracking-widest text-gray-900 font-mono break-all">{code}</p>
         </div>
 
         <div className="flex gap-2 mt-4">

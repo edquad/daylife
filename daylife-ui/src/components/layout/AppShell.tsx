@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../features/auth/AuthContext';
 import { useGitHubSync } from '../../features/sync/GitHubSyncContext';
-import { api } from '../../lib/api';
+import { api, Connection } from '../../lib/api';
 import { DayPicker } from '../DayPicker';
 import { InstallAppBanner } from '../InstallAppBanner';
 import { AppLogo } from '../AppLogo';
@@ -50,6 +51,7 @@ const navGroups = [
 const mobileBottomNav = [
   { path: '/', label: 'Today', icon: LayoutDashboard },
   { path: '/daily', label: 'Lists', icon: ShoppingCart },
+  { path: '/share', label: 'Share', icon: Users },
   { path: '/expenses', label: 'Money', icon: Receipt },
 ];
 
@@ -61,11 +63,23 @@ export function AppShell() {
   const [mobileAddOpen, setMobileAddOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
 
+  const { data: connections = [] } = useQuery<Connection[]>({
+    queryKey: ['connections'],
+    queryFn: async () => {
+      await api.post('/connections/sync-inbox').catch(() => undefined);
+      return api.get('/connections');
+    },
+    enabled: Boolean(user),
+    staleTime: 30_000,
+  });
+  const pendingInviteCount = connections.filter((c) => c.status === 'pending_received').length;
+
   const navItems = navGroups.flatMap((g) => g.items);
 
   const NavLink = ({ item, onClick }: { item: typeof navItems[0]; onClick?: () => void }) => {
     const Icon = item.icon;
     const active = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
+    const badge = item.path === '/share' && pendingInviteCount > 0 ? pendingInviteCount : 0;
     return (
       <Link
         to={item.path}
@@ -74,7 +88,14 @@ export function AppShell() {
           active ? 'bg-brand-50 text-brand-700 border-r-2 border-brand-600' : 'text-gray-600 hover:bg-gray-50'
         }`}
       >
-        <Icon size={18} />
+        <span className="relative shrink-0">
+          <Icon size={18} />
+          {badge > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
+              {badge}
+            </span>
+          )}
+        </span>
         {item.label}
       </Link>
     );
@@ -199,7 +220,7 @@ export function AppShell() {
           </div>
           <InstallAppBanner />
         </header>
-        <main className="flex-1 overflow-y-auto pb-20 lg:pb-6"><Outlet /></main>
+        <main className="flex-1 overflow-y-auto overflow-x-hidden pb-20 lg:pb-6"><Outlet /></main>
       </div>
 
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t z-40 pb-safe">
@@ -207,9 +228,15 @@ export function AppShell() {
           {mobileBottomNav.map((item) => {
             const Icon = item.icon;
             const active = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
+            const badge = item.path === '/share' && pendingInviteCount > 0 ? pendingInviteCount : 0;
             return (
-              <Link key={item.path} to={item.path} className={`flex flex-col items-center gap-0.5 px-2 py-1 ${active ? 'text-brand-700' : 'text-gray-400'}`}>
+              <Link key={item.path} to={item.path} className={`relative flex flex-col items-center gap-0.5 px-2 py-1 ${active ? 'text-brand-700' : 'text-gray-400'}`}>
                 <Icon size={18} />
+                {badge > 0 && (
+                  <span className="absolute top-0 right-0 min-w-[14px] h-3.5 px-0.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center">
+                    {badge}
+                  </span>
+                )}
                 <span className="text-[10px]">{item.label}</span>
               </Link>
             );
@@ -225,7 +252,12 @@ export function AppShell() {
             <Star size={18} />
             <span className="text-[10px]">Dreams</span>
           </Link>
-          <button onClick={() => setSidebarOpen(true)} className="flex flex-col items-center gap-0.5 px-2 py-1 text-gray-400">
+          <button onClick={() => setSidebarOpen(true)} className="relative flex flex-col items-center gap-0.5 px-2 py-1 text-gray-400">
+            {pendingInviteCount > 0 && (
+              <span className="absolute top-0 right-1 min-w-[14px] h-3.5 px-0.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center">
+                {pendingInviteCount}
+              </span>
+            )}
             <Menu size={18} />
             <span className="text-[10px]">More</span>
           </button>

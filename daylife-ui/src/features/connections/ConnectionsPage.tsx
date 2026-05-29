@@ -38,6 +38,7 @@ import { cn } from '../../lib/utils';
 import { normalizeUsername } from '../../lib/accounts';
 import { PageHeader } from '../../components/PageHeader';
 import { SharedFeatureLinks } from '../../components/SharedFeatureLinks';
+import { PendingInvitesBanner, shareScopeLabel } from '../../components/PendingInvitesBanner';
 
 const FEATURE_ICONS: Record<ShareFeature, typeof CheckSquare> = {
   tasks: CheckSquare,
@@ -97,6 +98,7 @@ export function ConnectionsPage() {
   );
   const [refreshing, setRefreshing] = useState(false);
   const [sending, setSending] = useState(false);
+  const [actingInviteId, setActingInviteId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
@@ -137,6 +139,15 @@ export function ConnectionsPage() {
 
   const accept = useMutation({
     mutationFn: (inviteId: string) => api.post<Connection>(`/connections/${inviteId}/accept`),
+    onMutate: async (inviteId) => {
+      setActingInviteId(inviteId);
+      await queryClient.cancelQueries({ queryKey: ['connections'] });
+      const prev = queryClient.getQueryData<Connection[]>(['connections']);
+      queryClient.setQueryData<Connection[]>(['connections'], (old) =>
+        old?.filter((c) => c.inviteId !== inviteId),
+      );
+      return { prev };
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['connections'] });
       queryClient.invalidateQueries({ queryKey: ['shared-summary'] });
@@ -145,17 +156,32 @@ export function ConnectionsPage() {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('Connected!');
     },
-    onError: (err: unknown) => {
+    onError: (err: unknown, _id, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['connections'], ctx.prev);
       toast.error(err instanceof ApiError ? err.message : (err as Error).message);
     },
+    onSettled: () => setActingInviteId(null),
   });
 
   const decline = useMutation({
     mutationFn: (inviteId: string) => api.post<Connection>(`/connections/${inviteId}/decline`),
+    onMutate: async (inviteId) => {
+      setActingInviteId(inviteId);
+      await queryClient.cancelQueries({ queryKey: ['connections'] });
+      const prev = queryClient.getQueryData<Connection[]>(['connections']);
+      queryClient.setQueryData<Connection[]>(['connections'], (old) =>
+        old?.filter((c) => c.inviteId !== inviteId),
+      );
+      return { prev };
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['connections'] });
       toast.success('Invite declined');
     },
+    onError: (_err, _id, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['connections'], ctx.prev);
+    },
+    onSettled: () => setActingInviteId(null),
   });
 
   const pendingReceived = connections.filter((c) => c.status === 'pending_received');
@@ -282,17 +308,28 @@ export function ConnectionsPage() {
         </div>
       )}
 
+      <PendingInvitesBanner
+        invites={pendingReceived}
+        onAccept={(id) => accept.mutate(id)}
+        onDecline={(id) => decline.mutate(id)}
+        acceptingId={actingInviteId}
+      />
+
       {user?.username && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border rounded-xl text-sm">
-          <UserRound size={16} className="text-gray-400 shrink-0" />
-          <span className="text-gray-600">
+        <div className="flex items-start gap-2 px-3 py-2 bg-gray-50 border rounded-xl text-sm">
+          <UserRound size={16} className="text-gray-400 shrink-0 mt-0.5" />
+          <span className="text-gray-600 break-words min-w-0">
             Your username: <strong className="text-gray-900">@{user.username}</strong> — share this so others can invite you
           </span>
         </div>
       )}
 
       <section className="bg-violet-50 border border-violet-100 rounded-xl px-4 py-3 text-sm text-violet-900">
-        <p className="font-medium">How it works with many people</p>
+        <p className="font-medium">What gets shared?</p>
+        <p className="mt-1 text-xs text-violet-800">
+          Each invite is custom. If someone picks <strong>Tasks only</strong>, you will <em>not</em> see their expenses or shopping.
+          If they pick <strong>Share all</strong>, you see everything listed below.
+        </p>
         <ul className="mt-2 space-y-1 text-xs text-violet-800 list-disc pl-4">
           <li>Each person gets their <strong>own</strong> share link with you (not one big group chat).</li>
           <li>Invite family one by one — use the same group tag like &quot;Family&quot; to find them easily.</li>
@@ -439,7 +476,14 @@ export function ConnectionsPage() {
           </div>
 
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-2">What to share</p>
+            <p className="text-xs font-medium text-gray-500 mb-2">
+              What to share <span className="text-gray-400">({selected.size} selected)</span>
+            </p>
+            {selected.size <= 2 && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5 mb-2">
+                Partner will only see: <strong>{shareScopeLabel(Array.from(selected))}</strong>
+              </p>
+            )}
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
               {SHARE_FEATURE_GROUPS.map((group) => (
                 <div key={group.title} className="rounded-xl border p-2.5 bg-gray-50/80">
@@ -513,30 +557,11 @@ export function ConnectionsPage() {
         <div className="py-12 text-center text-gray-400 text-sm">Loading…</div>
       ) : (
         <div className="space-y-4">
-          {pendingReceived.map((c) => (
-            <section key={c.id} className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3">
-              <h3 className="font-medium text-amber-900">@{c.partnerUsername} wants to share</h3>
-              <p className="text-xs text-gray-600">{featureSummary(c.features)}</p>
-              <SharedFeatureLinks features={c.features} />
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => accept.mutate(c.inviteId)}
-                  disabled={accept.isPending}
-                  className="flex items-center gap-1 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium"
-                >
-                  <Check size={14} /> Accept
-                </button>
-                <button
-                  type="button"
-                  onClick={() => decline.mutate(c.inviteId)}
-                  className="flex items-center gap-1 px-3 py-2 border rounded-lg text-sm"
-                >
-                  <X size={14} /> Decline
-                </button>
-              </div>
-            </section>
-          ))}
+          {pendingReceived.length > 0 && (
+            <p className="text-xs text-gray-500">
+              Pending invites also appear at the top of this page and on Today.
+            </p>
+          )}
 
           {pendingSent.length > 0 && (
             <section className="bg-white border rounded-2xl p-4">
@@ -577,7 +602,9 @@ export function ConnectionsPage() {
                             <span className="text-gray-400 font-normal ml-1">({c.partnerName})</span>
                           )}
                         </p>
-                        <p className="text-xs text-violet-600 mt-0.5">{featureSummary(c.features)}</p>
+                        <p className="text-xs text-violet-600 mt-0.5">
+                          Shared: <strong>{shareScopeLabel(c.features)}</strong>
+                        </p>
                       </div>
                       <Link to="/" className="text-xs text-brand-600 shrink-0 flex items-center gap-0.5">
                         Today <ArrowRight size={12} />
