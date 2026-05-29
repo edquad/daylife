@@ -1,0 +1,31 @@
+name: Deploy push relay
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'workers/push-relay/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        working-directory: workers/push-relay
+        run: npm install
+      - name: Deploy worker
+        working-directory: workers/push-relay
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy
+      - name: Set relay secret on worker
+        working-directory: workers/push-relay
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: echo "${{ secrets.DAYLIFE_VAPID_PRIVATE_KEY }}" | npx wrangler secret put VAPID_PRIVATE_KEY

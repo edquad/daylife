@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../auth/AuthContext';
 import { useGitHubSync } from '../sync/GitHubSyncContext';
@@ -24,8 +24,14 @@ import { forceAppRefresh } from '../../lib/appUpdate';
 import {
   notificationsPermission,
   notificationsSupported,
-  requestNotificationPermission,
 } from '../../lib/pendingNotifications';
+import {
+  homeScreenPushEnabled,
+  pushAlertsSupported,
+  subscribeToHomeScreenPush,
+  ensureAlertTopic,
+} from '../../lib/homeScreenPush';
+import { getActiveAccountId } from '../../lib/accounts';
 
 export function SettingsPage() {
   const { user, logout, refreshUser } = useAuth();
@@ -41,6 +47,8 @@ export function SettingsPage() {
   const [currentPinDraft, setCurrentPinDraft] = useState('');
   const [newRecoveryCode, setNewRecoveryCode] = useState<string | null>(null);
   const [notifPermission, setNotifPermission] = useState(notificationsPermission);
+  const [homePushOn, setHomePushOn] = useState(homeScreenPushEnabled);
+  const [alertTopic, setAlertTopic] = useState<string | null>(null);
 
   const { data: household } = useQuery<HouseholdInfo>({
     queryKey: ['household'],
@@ -53,6 +61,13 @@ export function SettingsPage() {
   });
 
   const householdType = (household?.householdType || 'SINGLE') as HouseholdType;
+
+  useEffect(() => {
+    const accountId = getActiveAccountId();
+    if (accountId && homePushOn) {
+      ensureAlertTopic(accountId).then(setAlertTopic).catch(() => undefined);
+    }
+  }, [homePushOn]);
 
   const updateProfile = useMutation({
     mutationFn: () => api.put<User>('/users/me', { name, color }),
@@ -200,36 +215,56 @@ export function SettingsPage() {
         </button>
       </section>
 
-      <section className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border-2 border-amber-200 shadow-sm p-6 space-y-4">
-        <h2 className="font-semibold flex items-center gap-2 text-amber-950">
-          <Bell size={18} className="text-amber-600" /> Invite alerts
+      <section className="bg-gradient-to-br from-violet-50 to-fuchsia-50 rounded-2xl border-2 border-violet-200 shadow-sm p-6 space-y-4">
+        <h2 className="font-semibold flex items-center gap-2 text-violet-950">
+          <Bell size={18} className="text-violet-600" /> Home screen alerts
         </h2>
-        <p className="text-sm text-amber-900/80">
-          Get a ping when someone invites you to share — badge on Share tab + phone notification.
+        <p className="text-sm text-violet-900/90">
+          When someone you share with adds a task, shopping item, or expense — popup on your phone
+          <strong> even if Rozka is closed</strong>.
         </p>
-        {!notificationsSupported() ? (
-          <p className="text-sm text-gray-500">Notifications are not supported in this browser.</p>
-        ) : notifPermission === 'granted' ? (
-          <p className="text-sm text-green-800 bg-green-100 border border-green-200 rounded-lg px-3 py-2">
-            Alerts are on. You&apos;ll get notified for new invites.
+        {!isStandalone && (
+          <p className="text-xs text-violet-800 bg-violet-100/80 border border-violet-200 rounded-lg px-3 py-2">
+            Install Rozka on your home screen first (Phone app section below), then turn on alerts.
           </p>
+        )}
+        {!pushAlertsSupported() ? (
+          <p className="text-sm text-gray-500">Your browser does not support home screen push alerts.</p>
+        ) : homePushOn && notifPermission === 'granted' ? (
+          <div className="space-y-2">
+            <p className="text-sm text-green-800 bg-green-100 border border-green-200 rounded-lg px-3 py-2">
+              Home screen alerts are on. Popups when your partner shares something new.
+            </p>
+            {alertTopic && (
+              <p className="text-xs text-violet-800">
+                Backup: install the free <strong>ntfy</strong> app and subscribe to topic{' '}
+                <code className="bg-violet-100 px-1 rounded">{alertTopic}</code> for alerts even when Rozka is fully closed.
+              </p>
+            )}
+          </div>
         ) : notifPermission === 'denied' ? (
           <p className="text-sm text-amber-900 bg-amber-100 border border-amber-200 rounded-lg px-3 py-2">
-            Alerts are blocked. Open your phone settings → allow notifications for {APP_NAME} / this site.
+            Notifications blocked. Phone Settings → Notifications → allow {APP_NAME}.
           </p>
         ) : (
           <button
             type="button"
             onClick={() =>
-              requestNotificationPermission().then((ok) => {
+              subscribeToHomeScreenPush().then(async (ok) => {
                 setNotifPermission(notificationsPermission());
-                if (ok) toast.success('Invite alerts turned on');
-                else toast.error('Could not enable alerts — check browser settings');
+                setHomePushOn(homeScreenPushEnabled());
+                const accountId = getActiveAccountId();
+                if (accountId && ok) {
+                  const topic = await ensureAlertTopic(accountId);
+                  setAlertTopic(topic);
+                }
+                if (ok) toast.success('Home screen alerts turned on!');
+                else toast.error('Allow notifications when asked, then try again');
               })
             }
-            className="w-full sm:w-auto px-5 py-3 bg-amber-500 text-white rounded-xl text-sm font-semibold hover:bg-amber-600 touch-manipulation shadow-sm"
+            className="w-full px-5 py-3.5 bg-violet-600 text-white rounded-xl text-sm font-semibold hover:bg-violet-700 touch-manipulation shadow-sm"
           >
-            Turn on invite alerts
+            Turn on home screen alerts
           </button>
         )}
       </section>

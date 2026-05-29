@@ -7,8 +7,8 @@ import {
   isNotificationPromptDismissed,
   notificationsPermission,
   notificationsSupported,
-  requestNotificationPermission,
 } from '../lib/pendingNotifications';
+import { subscribeToHomeScreenPush } from '../lib/homeScreenPush';
 
 export function PendingNotificationsPrompt() {
   const [hidden, setHidden] = useState(() => isNotificationPromptDismissed());
@@ -26,11 +26,6 @@ export function PendingNotificationsPrompt() {
     setHidden(true);
   };
 
-  const enable = async () => {
-    const ok = await requestNotificationPermission();
-    if (ok) dismiss();
-  };
-
   return (
     <div className="mx-4 mb-2 px-3 py-2.5 rounded-xl bg-violet-50 border border-violet-200 flex items-start gap-2 text-sm">
       <Bell size={18} className="text-violet-600 shrink-0 mt-0.5" />
@@ -42,7 +37,11 @@ export function PendingNotificationsPrompt() {
         <div className="flex flex-wrap gap-2 mt-2">
           <button
             type="button"
-            onClick={enable}
+            onClick={() =>
+              subscribeToHomeScreenPush().then((ok) => {
+                if (ok) dismiss();
+              })
+            }
             className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold touch-manipulation"
           >
             Turn on alerts

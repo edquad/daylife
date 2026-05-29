@@ -49,6 +49,7 @@ import {
   pruneStaleConnections,
 } from './sharing';
 import { fetchFromGitHub, flushCloudSyncNow, isGitHubConfigured, loadGitHubConfig } from './githubSync';
+import { notifySharedConnectionPartner, notifyPartnerHomeScreen } from './homeScreenPush';
 
 export type { Connection, ShareFeature, ShareInvite };
 export { ALL_SHARE_FEATURES, SHARE_FEATURE_LABELS, SHARE_FEATURE_GROUPS };
@@ -1132,6 +1133,18 @@ function partnerLabel(conn: Connection): string {
   return conn.partnerName || conn.partnerUsername;
 }
 
+function notifyPartnerAboutSharedChange(
+  conn: Connection,
+  data: ReturnType<typeof loadData>,
+  sessionId: string,
+  summary: string,
+  feature: ShareFeature,
+): void {
+  const me = data.users.find((u) => u.id === sessionId);
+  if (!me?.username) return;
+  void notifySharedConnectionPartner(conn.partnerAccountId, me.username, summary, feature);
+}
+
 /** Pick up partner accept / active status from cloud when the inviter still shows pending. */
 async function refreshConnectionsFromCloud(data: ReturnType<typeof loadData>): Promise<void> {
   const accountId = getActiveAccountId();
@@ -2037,6 +2050,12 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     );
     inbox.invites.push(invite);
     await pushInbox(partnerAccountId, inbox);
+    void notifyPartnerHomeScreen({
+      partnerAccountId,
+      title: 'New share invite',
+      body: `@${me.username} wants to connect and share with you`,
+      feature: 'tasks',
+    });
     const connection: Connection = {
       id: uid(),
       inviteId,
@@ -2447,6 +2466,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       }
       space.expenses.push(exp);
       await saveSharedSpace(space);
+      notifyPartnerAboutSharedChange(conn, data, sessionId!, `Spending: ${exp.description || exp.amount}`, 'expenses');
       return enrichSharedExpense(data, exp, space, conn) as T;
     }
 
@@ -2482,6 +2502,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       };
       space.shoppingItems.push(item);
       await saveSharedSpace(space);
+      notifyPartnerAboutSharedChange(conn, data, sessionId!, `Shopping: ${item.name}`, 'shopping');
       return item as T;
     }
 
@@ -2638,6 +2659,7 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       };
       space.tasks.push(task);
       await saveSharedSpace(space);
+      notifyPartnerAboutSharedChange(conn, data, sessionId!, `New task: ${task.title}`, 'tasks');
       return enrichTask(data, task) as T;
     }
 
@@ -2654,6 +2676,13 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
         task.completedAt = new Date().toISOString();
       }
       await saveSharedSpace(space);
+      notifyPartnerAboutSharedChange(
+        conn,
+        data,
+        sessionId!,
+        task.status === 'DONE' ? `Completed: ${task.title}` : `Reopened: ${task.title}`,
+        'tasks',
+      );
       return enrichTask(data, task) as T;
     }
 

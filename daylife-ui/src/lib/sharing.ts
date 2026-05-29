@@ -216,6 +216,19 @@ function inboxPath(accountId: string): string {
   return `data/accounts/${accountId}/inbox.json`;
 }
 
+function alertConfigPath(accountId: string): string {
+  return `data/accounts/${accountId}/alert.json`;
+}
+
+function pushSubscriptionPath(accountId: string): string {
+  return `data/accounts/${accountId}/push-subscription.json`;
+}
+
+export interface AccountAlertConfig {
+  topic: string;
+  updatedAt?: string;
+}
+
 export function accountDataPath(accountId: string): string {
   return `data/accounts/${accountId}/daylife.json`;
 }
@@ -268,6 +281,36 @@ export async function pushInbox(accountId: string, inbox: AccountInbox): Promise
     remote?.sha,
     'Rozka share invite',
   );
+}
+
+export async function fetchAccountAlertConfig(accountId: string): Promise<AccountAlertConfig | null> {
+  const remote = await readGitHubJson<AccountAlertConfig>(alertConfigPath(accountId));
+  return remote?.data?.topic ? remote.data : null;
+}
+
+export async function saveAccountAlertConfig(accountId: string, config: AccountAlertConfig): Promise<void> {
+  const remote = await readGitHubJson<AccountAlertConfig>(alertConfigPath(accountId));
+  await writeGitHubJson(
+    alertConfigPath(accountId),
+    { ...config, updatedAt: new Date().toISOString() },
+    remote?.sha,
+    'Rozka alert settings',
+  );
+}
+
+export async function fetchAccountPushSubscription(
+  accountId: string,
+): Promise<PushSubscriptionJSON | null> {
+  const remote = await readGitHubJson<PushSubscriptionJSON>(pushSubscriptionPath(accountId));
+  return remote?.data?.endpoint ? remote.data : null;
+}
+
+export async function saveAccountPushSubscription(
+  accountId: string,
+  subscription: PushSubscriptionJSON,
+): Promise<void> {
+  const remote = await readGitHubJson<PushSubscriptionJSON>(pushSubscriptionPath(accountId));
+  await writeGitHubJson(pushSubscriptionPath(accountId), subscription, remote?.sha, 'Rozka push subscription');
 }
 
 export async function fetchSharedSpace(spaceId: string): Promise<SharedSpaceData | null> {

@@ -1,0 +1,7 @@
+name = "daylife-push-relay"
+main = "src/index.js"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+VAPID_PUBLIC_KEY = "BET8I04xeWID8z61Rv6Mj7n-j7jF1rZgYmSOlLFHaZx9Yw29eiahe7IfAudP6OhbW8DuGhks21Z8j9BcvHHYF5g"
