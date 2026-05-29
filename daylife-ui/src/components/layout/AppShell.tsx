@@ -9,7 +9,7 @@ import { InstallAppBanner } from '../InstallAppBanner';
 import { AppLogo } from '../AppLogo';
 import { APP_NAME, APP_TAGLINE } from '../../lib/brand';
 import {
-  LayoutDashboard, CheckSquare, Receipt, Briefcase, Home, Settings,
+  LayoutDashboard, CheckSquare, Receipt, Settings,
   Menu, X, Plus, LogOut, BarChart3, Cloud, CloudOff, Loader2, Star, HandCoins, Users, Mic,
   ShoppingCart, Sun, Bell,
 } from 'lucide-react';
@@ -20,9 +20,9 @@ const navGroups = [
   {
     label: 'Your day',
     items: [
-      { path: '/', label: 'Today', icon: LayoutDashboard, hint: 'Daily check-in' },
-      { path: '/daily', label: 'Lists & habits', icon: ShoppingCart, hint: 'Shopping · routines · dates' },
-      { path: '/tasks', label: 'Task inbox', icon: CheckSquare, hint: 'Search all tasks' },
+      { path: '/', label: 'Today', icon: LayoutDashboard, hint: 'Dreams · habits · tasks' },
+      { path: '/daily', label: 'Daily lists', icon: Sun, hint: 'Shopping · routines · dates' },
+      { path: '/tasks', label: 'All tasks', icon: CheckSquare, hint: 'Search & filter inbox' },
     ],
   },
   {
@@ -41,8 +41,6 @@ const navGroups = [
     label: 'More',
     items: [
       { path: '/share', label: 'Share', icon: Users },
-      { path: '/work', label: 'Work', icon: Briefcase },
-      { path: '/home', label: 'Home', icon: Home },
       { path: '/settings', label: 'Settings', icon: Settings },
     ],
   },
@@ -50,8 +48,7 @@ const navGroups = [
 
 const mobileBottomNav = [
   { path: '/', label: 'Today', icon: LayoutDashboard },
-  { path: '/daily', label: 'Lists', icon: ShoppingCart },
-  { path: '/share', label: 'Share', icon: Users },
+  { path: '/daily', label: 'Daily', icon: Sun },
   { path: '/expenses', label: 'Money', icon: Receipt },
 ];
 
@@ -228,38 +225,36 @@ export function AppShell() {
           {mobileBottomNav.map((item) => {
             const Icon = item.icon;
             const active = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
-            const badge = item.path === '/share' && pendingInviteCount > 0 ? pendingInviteCount : 0;
             return (
-              <Link key={item.path} to={item.path} className={`relative flex flex-col items-center gap-0.5 px-2 py-1 ${active ? 'text-brand-700' : 'text-gray-400'}`}>
-                <Icon size={18} />
-                {badge > 0 && (
-                  <span className="absolute top-0 right-0 min-w-[14px] h-3.5 px-0.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center">
-                    {badge}
-                  </span>
-                )}
-                <span className="text-[10px]">{item.label}</span>
+              <Link key={item.path} to={item.path} className={`flex flex-col items-center gap-0.5 px-3 py-1 min-w-[4rem] ${active ? 'text-brand-700' : 'text-gray-400'}`}>
+                <Icon size={20} />
+                <span className="text-[10px] font-medium">{item.label}</span>
               </Link>
             );
           })}
-          <VoiceMicButton onClick={() => setVoiceOpen(true)} size="sm" className="-mt-6 shrink-0" />
+          <VoiceMicButton onClick={() => setVoiceOpen(true)} size="sm" className="-mt-5 shrink-0" />
           <button
             onClick={() => setMobileAddOpen(!mobileAddOpen)}
-            className="w-11 h-11 bg-accent-500 rounded-full flex items-center justify-center text-white shadow-lg -mt-6 shrink-0"
+            className="w-12 h-12 bg-accent-500 rounded-full flex items-center justify-center text-white shadow-lg -mt-5 shrink-0 touch-manipulation"
+            aria-label="Quick add"
           >
-            <Plus size={22} />
+            <Plus size={24} />
           </button>
-          <Link to="/vision" className={`flex flex-col items-center gap-0.5 px-2 py-1 ${location.pathname.startsWith('/vision') ? 'text-brand-700' : 'text-gray-400'}`}>
-            <Star size={18} />
-            <span className="text-[10px]">Dreams</span>
-          </Link>
-          <button onClick={() => setSidebarOpen(true)} className="relative flex flex-col items-center gap-0.5 px-2 py-1 text-gray-400">
+          <Link
+            to="/share"
+            className={`relative flex flex-col items-center gap-0.5 px-3 py-1 min-w-[4rem] ${location.pathname.startsWith('/share') ? 'text-brand-700' : 'text-gray-400'}`}
+          >
+            <Users size={20} />
             {pendingInviteCount > 0 && (
               <span className="absolute top-0 right-1 min-w-[14px] h-3.5 px-0.5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center">
                 {pendingInviteCount}
               </span>
             )}
-            <Menu size={18} />
-            <span className="text-[10px]">More</span>
+            <span className="text-[10px] font-medium">Share</span>
+          </Link>
+          <button onClick={() => setSidebarOpen(true)} className="relative flex flex-col items-center gap-0.5 px-3 py-1 min-w-[4rem] text-gray-400 touch-manipulation">
+            <Menu size={20} />
+            <span className="text-[10px] font-medium">More</span>
           </button>
         </div>
       </nav>
@@ -284,13 +279,13 @@ export function AppShell() {
                 <p className="text-xs text-violet-700">Say task, expense, or shopping</p>
               </div>
             </button>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-4 mb-2">Today</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-4 mb-2">Your day</p>
             <div className="grid grid-cols-2 gap-3">
               {[
                 { label: 'Task for today', path: '/?focus=tasks', icon: CheckSquare },
+                { label: 'Morning habit', path: '/daily?tab=routines', icon: Sun },
                 { label: 'Shopping item', path: '/daily?tab=shopping', icon: ShoppingCart },
-                { label: 'Log spending', path: '/expenses?add=true', icon: Receipt },
-                { label: 'Habit check', path: '/daily?tab=routines', icon: Sun },
+                { label: 'Add a dream', path: '/vision', icon: Star },
               ].map((action) => {
                 const Icon = action.icon;
                 return (
@@ -302,13 +297,13 @@ export function AppShell() {
                 );
               })}
             </div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-4 mb-2">Later / goals</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-4 mb-2">Also</p>
             <div className="grid grid-cols-2 gap-3">
               {[
-                { label: 'Dream / goal', path: '/vision', icon: Star },
+                { label: 'Log spending', path: '/expenses?add=true', icon: Receipt },
                 { label: 'Reminder date', path: '/daily?tab=reminders', icon: Bell },
                 { label: 'Split with someone', path: '/splits', icon: HandCoins },
-                { label: 'Work note', path: '/work?add=true', icon: Briefcase },
+                { label: 'Invite someone', path: '/share', icon: Users },
               ].map((action) => {
                 const Icon = action.icon;
                 return (

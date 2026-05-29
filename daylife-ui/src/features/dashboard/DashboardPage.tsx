@@ -1,6 +1,6 @@
 import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   api,
   Expense,
@@ -39,6 +39,9 @@ import { AREA_COLORS, AREA_LABELS, memberGridClass } from '../../lib/utils';
 import { SharedFeatureLinks } from '../../components/SharedFeatureLinks';
 import { PendingInvitesBanner, shareScopeLabel } from '../../components/PendingInvitesBanner';
 import { TaskFormModal } from '../tasks/TaskFormModal';
+import { DailyRhythmSection } from '../../components/DailyRhythmSection';
+import { WelcomeDayCard } from '../../components/WelcomeDayCard';
+import { getDayPhase, phaseGreeting, phaseHint } from '../../lib/dailyFlow';
 
 interface PersonSummary {
   userId: string;
@@ -72,6 +75,8 @@ export function DashboardPage() {
   const { user } = useAuth();
   const selectedDate = useDateStore((s) => s.selectedDate);
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const dayPhase = getDayPhase();
 
   const { data, isLoading } = useQuery<DaySummary>({
     queryKey: ['dashboard', selectedDate],
@@ -163,6 +168,15 @@ export function DashboardPage() {
     },
   });
 
+  const toggleRoutineItem = useMutation({
+    mutationFn: ({ routineId, itemId }: { routineId: string; itemId: string }) =>
+      api.post(`/routines/${routineId}/toggle`, { date: selectedDate, itemId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['routines-today'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+
   const hasActiveShare = connections.some((c) => c.status === 'active');
   const activeConnections = connections.filter((c) => c.status === 'active');
   const sharedColumns = sharedSummary?.columns ?? [];
@@ -201,6 +215,13 @@ export function DashboardPage() {
     defaultShareScope?: ShareScope;
   }>({});
 
+  React.useEffect(() => {
+    if (searchParams.get('focus') === 'tasks') {
+      setTaskModalOpen(true);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   if (isLoading) {
     return (
       <div className="p-4 max-w-3xl mx-auto animate-pulse space-y-4">
@@ -216,8 +237,6 @@ export function DashboardPage() {
   const monthKey = selectedDate.slice(0, 7);
   const monthTasksPending = data?.monthTasksPending ?? [];
   const shoppingPending = shoppingData?.data.filter((i) => !i.checked) ?? [];
-  const routineDone = data?.routineDone ?? 0;
-  const routineTotal = data?.routineTotal ?? 0;
   const upcomingReminders = data?.upcomingReminders ?? [];
   const todayExpenses = data?.todayExpenses ?? [];
   const hasTodayExpenses =
@@ -235,8 +254,8 @@ export function DashboardPage() {
         theme="today"
         icon={LayoutDashboard}
         title={formatDayHeading(selectedDate)}
-        subtitle={isToday && user?.name ? `Good day, ${user.name.split(' ')[0]} 👋` : 'Your day at a glance'}
-        hint="Start with your dreams, then check today's list"
+        subtitle={isToday && user?.name ? phaseGreeting(user.name, dayPhase) : 'Your day at a glance'}
+        hint={isToday ? phaseHint(dayPhase) : 'Pick a date above to review another day'}
         action={
           todayTotal > 0 ? (
             <div className="text-right shrink-0">
@@ -300,6 +319,29 @@ export function DashboardPage() {
           )}
         </div>
       </section>
+
+      <WelcomeDayCard
+        hasVision={visionPreview.length > 0}
+        hasTasks={todayTotal > 0}
+        hasRoutines={routines.some((r) => r.total > 0)}
+        onAddTask={() => {
+          setTaskModalDefaults({
+            defaultAssigneeId: user?.id,
+            defaultShareScope: { kind: 'personal', visibility: defaultVisibility(members.length) },
+          });
+          setTaskModalOpen(true);
+        }}
+      />
+
+      {isToday && (
+        <DailyRhythmSection
+          routines={routines}
+          selectedDate={selectedDate}
+          isToday={isToday}
+          onToggleItem={(routineId, itemId) => toggleRoutineItem.mutate({ routineId, itemId })}
+          toggling={toggleRoutineItem.isPending}
+        />
+      )}
 
       {(data?.overdueCount ?? 0) > 0 && isToday && (
         <Link
@@ -407,33 +449,6 @@ export function DashboardPage() {
                   +{shoppingPending.length - 4} more
                 </Link>
               )}
-            </ul>
-          )}
-        </DaySection>
-
-        <DaySection
-          accent="amber"
-          icon={Sun}
-          title="Daily habits"
-          subtitle={routineTotal === 0 ? 'Set up morning/evening routines' : `${routineDone}/${routineTotal} done`}
-          action={
-            <Link to="/daily?tab=routines" className="text-xs font-medium text-amber-600 hover:underline">
-              All habits →
-            </Link>
-          }
-        >
-          {routines.length === 0 ? (
-            <p className="text-sm text-gray-500">Track water, exercise, prayer — build your daily rhythm.</p>
-          ) : (
-            <ul className="space-y-2">
-              {routines.slice(0, 3).map((r) => (
-                <li key={r.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="truncate">{r.name}</span>
-                  <span className="text-amber-700 font-medium tabular-nums shrink-0">
-                    {r.done}/{r.total}
-                  </span>
-                </li>
-              ))}
             </ul>
           )}
         </DaySection>

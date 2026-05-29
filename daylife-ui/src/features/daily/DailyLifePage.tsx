@@ -18,6 +18,8 @@ import { formatDate, todayISO } from '../../lib/format';
 import { cn } from '../../lib/utils';
 import { toast } from '../../components/Toaster';
 import { PageHeader } from '../../components/PageHeader';
+import { DailyFlowStrip } from '../../components/DailyFlowStrip';
+import { getDayPhase, defaultDailyTab } from '../../lib/dailyFlow';
 import { ShareScopePicker } from '../../components/ShareScopePicker';
 import type { ShareScope } from '../../lib/shareScope';
 import {
@@ -35,12 +37,6 @@ import {
 } from 'lucide-react';
 
 type Tab = 'shopping' | 'routines' | 'reminders';
-
-const TABS: { id: Tab; label: string; icon: typeof ShoppingCart; color: string; active: string }[] = [
-  { id: 'shopping', label: 'Shopping', icon: ShoppingCart, color: 'text-emerald-700', active: 'bg-emerald-600 text-white shadow-sm' },
-  { id: 'routines', label: 'Habits', icon: Sun, color: 'text-amber-700', active: 'bg-amber-500 text-white shadow-sm' },
-  { id: 'reminders', label: 'Dates', icon: Bell, color: 'text-rose-700', active: 'bg-rose-500 text-white shadow-sm' },
-];
 
 const SHOP_CATEGORIES: { id: ShoppingCategory; label: string; color: string }[] = [
   { id: 'GROCERIES', label: 'Groceries', color: 'bg-green-100 text-green-700' },
@@ -789,7 +785,23 @@ function RemindersTab() {
 
 export function DailyLifePage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = (searchParams.get('tab') || 'shopping') as Tab;
+  const selectedDate = useDateStore((s) => s.selectedDate);
+  const tabParam = searchParams.get('tab');
+  const tab = (tabParam || defaultDailyTab(getDayPhase())) as Tab;
+
+  const { data: routinesData } = useQuery<{ date: string; routines: RoutineToday[] }>({
+    queryKey: ['routines-today', selectedDate],
+    queryFn: () => api.get(`/routines/today?date=${selectedDate}`),
+  });
+  const routines = routinesData?.routines ?? [];
+  const routineDone = routines.reduce((s, r) => s + r.done, 0);
+  const routineTotal = routines.reduce((s, r) => s + r.total, 0);
+
+  const { data: shoppingData } = useQuery<{ data: ShoppingItem[] }>({
+    queryKey: ['shopping'],
+    queryFn: () => api.get('/shopping'),
+  });
+  const shoppingPending = shoppingData?.data.filter((i) => !i.checked).length ?? 0;
 
   const setTab = (next: Tab) => {
     setSearchParams({ tab: next });
@@ -799,28 +811,19 @@ export function DailyLifePage() {
     <div className="p-4 lg:p-6 space-y-5 max-w-3xl mx-auto">
       <PageHeader
         theme="life"
-        icon={ShoppingCart}
-        title="Lists & habits"
-        subtitle="Groceries to buy · daily routines · important dates"
-        hint="Not the same as Today tasks — this is for shopping lists, habits, and birthdays"
+        icon={Sun}
+        title="Daily lists & habits"
+        subtitle="Shopping · morning & evening routines · important dates"
+        hint="Everything here supports your Today page — check habits on Today without opening this page"
       />
 
-      <div className="flex flex-wrap gap-2 p-1.5 bg-gray-100 rounded-xl">
-        {TABS.map(({ id, label, icon: Icon, active }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex-1 sm:flex-none justify-center',
-              tab === id ? active : 'text-gray-500 hover:text-gray-700 hover:bg-white/60',
-            )}
-          >
-            <Icon size={16} />
-            {label}
-          </button>
-        ))}
-      </div>
+      <DailyFlowStrip
+        activeTab={tab}
+        onTabChange={setTab}
+        routineDone={routineDone}
+        routineTotal={routineTotal}
+        shoppingPending={shoppingPending}
+      />
 
       {tab === 'shopping' && <ShoppingTab />}
       {tab === 'routines' && <RoutinesTab />}

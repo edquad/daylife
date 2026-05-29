@@ -13,8 +13,6 @@ import { ExpenseReportsPage } from './features/expenses/ExpenseReportsPage';
 import { SplitBalancesPage } from './features/expenses/SplitBalancesPage';
 import { DailyLifePage } from './features/daily/DailyLifePage';
 import { VisionBoardPage } from './features/vision/VisionBoardPage';
-import { WorkPage } from './features/work/WorkPage';
-import { HomePage } from './features/home/HomePage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { ConnectionsPage } from './features/connections/ConnectionsPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -50,6 +48,10 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
 const routerBasename = import.meta.env.BASE_URL.replace(/\/$/, '') || undefined;
 
+function AreaRedirect({ area }: { area: 'HOME' | 'WORK' }) {
+  return <Navigate to={`/tasks?area=${area}&status=TODO`} replace />;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -68,8 +70,8 @@ export default function App() {
               <Route path="reports" element={<ErrorBoundary><ExpenseReportsPage /></ErrorBoundary>} />
               <Route path="daily" element={<ErrorBoundary><DailyLifePage /></ErrorBoundary>} />
               <Route path="vision" element={<ErrorBoundary><VisionBoardPage /></ErrorBoundary>} />
-              <Route path="work" element={<ErrorBoundary><WorkPage /></ErrorBoundary>} />
-              <Route path="home" element={<ErrorBoundary><HomePage /></ErrorBoundary>} />
+              <Route path="work" element={<AreaRedirect area="WORK" />} />
+              <Route path="home" element={<AreaRedirect area="HOME" />} />
               <Route path="share" element={<ErrorBoundary><ConnectionsPage /></ErrorBoundary>} />
               <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
               <Route path="*" element={<NotFoundPage />} />
