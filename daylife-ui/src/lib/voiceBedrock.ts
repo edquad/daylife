@@ -39,3 +39,45 @@ export async function parseVoiceTranscriptSmart(
 
   return { actions: parseVoiceTranscript(text), source: 'local' };
 }
+
+export async function transcribeAndParseVoice(
+  audio: { base64: string; sampleRate: number },
+  lang: VoiceLang,
+): Promise<{ transcript: string; actions: VoiceAction[]; source: 'bedrock' | 'local' }> {
+  const selectedDate = useDateStore.getState().selectedDate || todayISO();
+  const context = { selectedDate, today: todayISO(), lang };
+
+  if (!VOICE_PARSE_URL) {
+    return { transcript: '', actions: [], source: 'local' };
+  }
+
+  const res = await fetch(VOICE_PARSE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      audioBase64: audio.base64,
+      audioEncoding: 'pcm',
+      sampleRate: audio.sampleRate,
+      lang,
+      context,
+    }),
+  });
+
+  const data = (await res.json()) as {
+    ok?: boolean;
+    transcript?: string;
+    actions?: VoiceAction[];
+    error?: string;
+  };
+
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || 'Voice transcription failed');
+  }
+
+  const transcript = (data.transcript || '').trim();
+  const actions = Array.isArray(data.actions) ? data.actions : [];
+  if (actions.length === 0 && transcript) {
+    return { transcript, actions: parseVoiceTranscript(transcript), source: 'local' };
+  }
+  return { transcript, actions, source: 'bedrock' };
+}

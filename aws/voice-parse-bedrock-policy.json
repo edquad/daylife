@@ -9,6 +9,11 @@
         "arn:aws:bedrock:*:*:inference-profile/apac.amazon.nova-*",
         "arn:aws:bedrock:*:*:inference-profile/*"
       ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["transcribe:StartStreamTranscription"],
+      "Resource": "*"
     }
   ]
 }

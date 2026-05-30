@@ -12,13 +12,16 @@ import {
   type VoiceAction,
   type VoiceLang,
 } from '../lib/voiceCommands';
-import { parseVoiceTranscriptSmart, voiceAiSupported } from '../lib/voiceBedrock';
+import { parseVoiceTranscriptSmart, transcribeAndParseVoice, voiceAiSupported } from '../lib/voiceBedrock';
 import { executeVoiceActions, voiceQueryKeysToInvalidate } from '../lib/executeVoiceCommands';
 import {
   collectTranscript,
   getSpeechRecognitionCtor,
+  isCloudMicSupported,
   isIOSDevice,
   isVoiceInputSupported,
+  isVoiceMicAvailable,
+  recordPcmVoiceClip,
   requestMicrophoneAccess,
   speechErrorMessage,
 } from '../lib/speechRecognition';
@@ -39,20 +42,26 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
   const [typed, setTyped] = useState('');
   const [pending, setPending] = useState<VoiceAction[]>([]);
   const [statusLine, setStatusLine] = useState('');
-  const [voiceSupported] = useState(isVoiceInputSupported());
+  const [holdToSpeak] = useState(isVoiceInputSupported());
+  const [cloudMic] = useState(isCloudMicSupported());
+  const [micAvailable] = useState(isVoiceMicAvailable());
   const [onIOS] = useState(isIOSDevice());
   const [aiEnabled] = useState(voiceAiSupported());
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const transcriptRef = useRef('');
   const holdingRef = useRef(false);
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordAbortRef = useRef<AbortController | null>(null);
+  const recordingRef = useRef(false);
 
   const hints = getVoiceHints(lang);
 
   useEffect(() => {
     if (!open) {
       recognitionRef.current?.abort();
+      recordAbortRef.current?.abort();
       holdingRef.current = false;
+      recordingRef.current = false;
       if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
       setState('idle');
       setTranscript('');
@@ -218,9 +227,87 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
     }
   }, [finishListening, lang]);
 
+  const stopCloudRecording = useCallback(() => {
+    recordAbortRef.current?.abort();
+  }, []);
+
+  const startCloudRecording = useCallback(async () => {
+    if (recordingRef.current || !cloudMic) return;
+
+    setState('processing');
+    setStatusLine(lang === 'hi-IN' ? 'Mic allow करें…' : 'Allow microphone…');
+    setTranscript('');
+    setPending([]);
+
+    const mic = await requestMicrophoneAccess();
+    if (mic === 'denied') {
+      setState('idle');
+      setStatusLine(lang === 'hi-IN' ? 'Settings में mic allow करें' : 'Enable mic in Settings');
+      toast.error('Allow microphone access');
+      return;
+    }
+    if (mic === 'unavailable') {
+      setState('idle');
+      setStatusLine(lang === 'hi-IN' ? 'Mic उपलब्ध नहीं' : 'Microphone unavailable');
+      return;
+    }
+
+    recordingRef.current = true;
+    recordAbortRef.current = new AbortController();
+    setState('listening');
+    setStatusLine(
+      lang === 'hi-IN'
+        ? 'बोलें… फिर mic दबाकर रोकें'
+        : 'Speak… tap mic again to stop',
+    );
+
+    try {
+      const clip = await recordPcmVoiceClip({
+        signal: recordAbortRef.current.signal,
+        maxMs: 25000,
+      });
+      recordingRef.current = false;
+      if (!clip) {
+        setState('idle');
+        setStatusLine(
+          lang === 'hi-IN' ? 'आवाज़ नहीं सुनी — फिर कोशिश करें' : 'No speech heard — try again',
+        );
+        return;
+      }
+
+      setState('processing');
+      setStatusLine(lang === 'hi-IN' ? 'AI सुन रहा है…' : 'AI listening…');
+      const { transcript: heard, actions } = await transcribeAndParseVoice(clip, lang);
+      if (heard) setTranscript(heard);
+      if (actions.length === 0) {
+        setStatusLine(
+          lang === 'hi-IN' ? 'समझ नहीं आया — example देखें' : 'Could not understand — see examples',
+        );
+        setState('idle');
+        return;
+      }
+      void runActions(actions);
+    } catch (err) {
+      recordingRef.current = false;
+      setState('idle');
+      const msg = err instanceof Error ? err.message : 'Voice failed';
+      setStatusLine(msg);
+      toast.error(msg);
+    }
+  }, [cloudMic, lang, runActions]);
+
+  const handleMicTap = () => {
+    if (holdToSpeak || state === 'processing') return;
+    if (state === 'listening') {
+      stopCloudRecording();
+      return;
+    }
+    void startCloudRecording();
+  };
+
   const handleHoldStart = (e: React.PointerEvent) => {
     e.preventDefault();
-    if (state === 'processing') return;
+    if (!holdToSpeak || state === 'processing') return;
     holdingRef.current = true;
     void startListening();
   };
@@ -279,23 +366,32 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
             </p>
           )}
 
-          {onIOS && (
+          {onIOS && cloudMic && (
+            <p className="text-xs text-violet-700 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
+              {lang === 'hi-IN'
+                ? 'iPhone: mic दबाएं, बोलें, फिर रोकने के लिए फिर दबाएं'
+                : 'iPhone: tap mic, speak, tap again to stop'}
+            </p>
+          )}
+
+          {onIOS && !cloudMic && (
             <div className="mb-4 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
               {lang === 'hi-IN'
-                ? 'iPhone पर voice नहीं चलता — नीचे Hindi/English type करें'
-                : 'No voice on iPhone — type below (works same way)'}
+                ? 'Voice के लिए app refresh करें — या नीचे type करें'
+                : 'Refresh the app for voice — or type below'}
             </div>
           )}
 
-          {voiceSupported && (
+          {micAvailable && (
             <div className="text-center mb-5">
               <button
                 type="button"
-                onPointerDown={handleHoldStart}
-                onPointerUp={handleHoldEnd}
-                onPointerLeave={handleHoldEnd}
-                onPointerCancel={handleHoldEnd}
-                disabled={state === 'processing'}
+                onPointerDown={holdToSpeak ? handleHoldStart : undefined}
+                onPointerUp={holdToSpeak ? handleHoldEnd : undefined}
+                onPointerLeave={holdToSpeak ? handleHoldEnd : undefined}
+                onPointerCancel={holdToSpeak ? handleHoldEnd : undefined}
+                onClick={holdToSpeak ? undefined : handleMicTap}
+                disabled={state === 'processing' && !recordingRef.current}
                 className={cn(
                   'w-24 h-24 rounded-full mx-auto flex items-center justify-center text-white shadow-lg touch-manipulation select-none',
                   state === 'listening'
@@ -305,7 +401,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                       : 'bg-violet-600 active:scale-95',
                 )}
               >
-                {state === 'processing' ? (
+                {state === 'processing' && !recordingRef.current ? (
                   <Loader2 size={36} className="animate-spin" />
                 ) : (
                   <Mic size={36} />
@@ -313,12 +409,20 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
               </button>
               <p className="mt-3 text-sm font-semibold">
                 {state === 'listening'
-                  ? lang === 'hi-IN'
-                    ? 'छोड़ें जब बोल लें'
-                    : 'Release when done'
-                  : lang === 'hi-IN'
-                    ? 'Hold करके बोलें'
-                    : 'Hold to speak'}
+                  ? holdToSpeak
+                    ? lang === 'hi-IN'
+                      ? 'छोड़ें जब बोल लें'
+                      : 'Release when done'
+                    : lang === 'hi-IN'
+                      ? 'बोलें — रोकने mic दबाएं'
+                      : 'Tap mic again to stop'
+                  : holdToSpeak
+                    ? lang === 'hi-IN'
+                      ? 'Hold करके बोलें'
+                      : 'Hold to speak'
+                    : lang === 'hi-IN'
+                      ? 'Mic दबाकर बोलें'
+                      : 'Tap mic to speak'}
               </p>
               {transcript && (
                 <p className="mt-2 text-sm text-gray-600 italic px-2">&ldquo;{transcript}&rdquo;</p>
@@ -348,7 +452,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
 
           {statusLine && <p className="text-xs text-gray-500 mb-3 text-center">{statusLine}</p>}
 
-          <div className={voiceSupported ? 'border-t pt-4' : ''}>
+          <div className={micAvailable ? 'border-t pt-4' : ''}>
             <p className="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
               <Keyboard size={14} /> {lang === 'hi-IN' ? 'Type करें' : 'Or type'}
             </p>

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.800.0"
+    "@aws-sdk/client-bedrock-runtime": "^3.800.0",
+    "@aws-sdk/client-transcribe-streaming": "^3.800.0"
   }
 }

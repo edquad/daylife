@@ -1,4 +1,8 @@
 const { BedrockRuntimeClient, ConverseCommand } = require('@aws-sdk/client-bedrock-runtime');
+const {
+  TranscribeStreamingClient,
+  StartStreamTranscriptionCommand,
+} = require('@aws-sdk/client-transcribe-streaming');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -136,6 +140,61 @@ async function invokeModel(client, modelId, transcript, lang, context) {
   return sanitizeActions(parsed.actions, context.selectedDate || context.today);
 }
 
+async function transcribePcm(pcmBuffer, languageCode, sampleRateHertz) {
+  const region = process.env.AWS_REGION || 'ap-south-1';
+  const client = new TranscribeStreamingClient({ region });
+  const chunkSize = 6400;
+
+  async function* audioStream() {
+    for (let i = 0; i < pcmBuffer.length; i += chunkSize) {
+      yield {
+        AudioEvent: {
+          AudioChunk: pcmBuffer.subarray(i, Math.min(i + chunkSize, pcmBuffer.length)),
+        },
+      };
+    }
+  }
+
+  const command = new StartStreamTranscriptionCommand({
+    LanguageCode: languageCode,
+    MediaEncoding: 'pcm',
+    MediaSampleRateHertz: sampleRateHertz,
+    AudioStream: audioStream(),
+  });
+
+  const result = await client.send(command);
+  let transcript = '';
+  if (result.TranscriptResultStream) {
+    for await (const event of result.TranscriptResultStream) {
+      const results = event.TranscriptEvent?.Transcript?.Results;
+      if (!results) continue;
+      for (const r of results) {
+        if (!r.IsPartial && r.Alternatives?.[0]?.Transcript) {
+          transcript += `${r.Alternatives[0].Transcript} `;
+        }
+      }
+    }
+  }
+  return transcript.trim();
+}
+
+async function parseTranscript(transcript, lang, context) {
+  const region = process.env.AWS_REGION || 'ap-south-1';
+  const client = new BedrockRuntimeClient({ region });
+  let lastError = null;
+
+  for (const modelId of MODEL_IDS) {
+    try {
+      const actions = await invokeModel(client, modelId, transcript, lang, context);
+      return { actions, model: modelId };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Bedrock parse failed');
+}
+
 exports.handler = async (event) => {
   const method = event.requestContext?.http?.method || event.httpMethod || 'GET';
 
@@ -154,10 +213,8 @@ exports.handler = async (event) => {
     return response(400, { ok: false, error: 'Invalid JSON' });
   }
 
-  const transcript = String(payload.transcript || '').trim();
-  if (transcript.length < 2) {
-    return response(400, { ok: false, error: 'Missing transcript' });
-  }
+  const transcriptInput = String(payload.transcript || '').trim();
+  let transcript = transcriptInput;
 
   const lang = payload.lang === 'en-US' ? 'en-US' : 'hi-IN';
   const today = typeof payload.context?.today === 'string' ? payload.context.today : new Date().toISOString().slice(0, 10);
@@ -165,24 +222,36 @@ exports.handler = async (event) => {
     typeof payload.context?.selectedDate === 'string' ? payload.context.selectedDate : today;
   const context = { today, selectedDate, lang };
 
-  const region = process.env.AWS_REGION || 'ap-south-1';
-  const client = new BedrockRuntimeClient({ region });
-  let lastError = null;
-
-  for (const modelId of MODEL_IDS) {
+  if (payload.audioBase64) {
     try {
-      const actions = await invokeModel(client, modelId, transcript, lang, context);
-      return response(200, { ok: true, actions, model: modelId });
+      const pcm = Buffer.from(String(payload.audioBase64), 'base64');
+      const sampleRate = Number(payload.sampleRate) || 16000;
+      transcript = await transcribePcm(pcm, lang, sampleRate);
     } catch (err) {
-      lastError = err;
+      const message = err?.message || 'Transcription failed';
+      return response(500, {
+        ok: false,
+        error: message,
+        hint: message.includes('AccessDenied')
+          ? 'Allow Amazon Transcribe for the Lambda role in IAM'
+          : undefined,
+      });
     }
   }
 
-  const message = lastError?.message || 'Bedrock parse failed';
-  const hint =
-    message.includes('AccessDenied') || message.includes('ResourceNotFound')
-      ? 'Enable Amazon Nova in Bedrock console (Model access) for ap-south-1'
-      : undefined;
+  if (transcript.length < 2) {
+    return response(400, { ok: false, error: 'Could not hear speech — speak clearly and try again' });
+  }
 
-  return response(500, { ok: false, error: message, hint });
+  try {
+    const { actions, model } = await parseTranscript(transcript, lang, context);
+    return response(200, { ok: true, transcript, actions, model });
+  } catch (err) {
+    const message = err?.message || 'Bedrock parse failed';
+    const hint =
+      message.includes('AccessDenied') || message.includes('ResourceNotFound')
+        ? 'Enable Amazon Nova in Bedrock console (Model access) for ap-south-1'
+        : undefined;
+    return response(500, { ok: false, error: message, hint, transcript });
+  }
 };
