@@ -26,6 +26,7 @@ import {
   recordPcmVoiceClip,
   requestMicrophoneAccess,
   speechErrorMessage,
+  type RecordedVoiceClip,
 } from '../lib/speechRecognition';
 
 type VoiceState = 'idle' | 'listening' | 'processing' | 'preview';
@@ -57,11 +58,31 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recordAbortRef = useRef<AbortController | null>(null);
   const recordingRef = useRef(false);
+  const holdRecordPromiseRef = useRef<Promise<RecordedVoiceClip | null> | null>(null);
+  const recordStartedAtRef = useRef(0);
+  const [recordSeconds, setRecordSeconds] = useState(0);
 
+  /** WhatsApp-style: hold mic, release to send — Web Speech or PCM clip. */
+  const whatsappHold = (holdToSpeak || cloudMic) && !iosDictation;
   const hints = getVoiceHints(lang);
 
   useEffect(() => {
+    if (state !== 'listening') {
+      setRecordSeconds(0);
+      return;
+    }
+    const tick = setInterval(() => {
+      if (recordStartedAtRef.current > 0) {
+        setRecordSeconds(Math.floor((Date.now() - recordStartedAtRef.current) / 1000));
+      }
+    }, 200);
+    return () => clearInterval(tick);
+  }, [state]);
+
+  useEffect(() => {
     if (!open) {
+      recordStartedAtRef.current = 0;
+      holdRecordPromiseRef.current = null;
       recognitionRef.current?.abort();
       recordAbortRef.current?.abort();
       holdingRef.current = false;
@@ -133,6 +154,15 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
         setState('idle');
         return;
       }
+      if (autoAdd) {
+        setStatusLine(
+          lang === 'hi-IN'
+            ? `${actions.length} चीज़ add हो रही…`
+            : `Adding ${actions.length} item${actions.length > 1 ? 's' : ''}…`,
+        );
+        await runActions(actions);
+        return;
+      }
       setPending(actions);
       setState('preview');
       setStatusLine(
@@ -140,9 +170,6 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
           ? `${actions.length} चीज़ — सही है? गलत हो तो नीचे edit करें`
           : `${actions.length} item(s) — correct? edit below if wrong`,
       );
-      if (autoAdd) {
-        void runActions(actions);
-      }
     },
     [parseTranscript, lang, runActions],
   );
@@ -154,7 +181,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       holdingRef.current = false;
       if (text) {
         setTyped(text);
-        void submitText(text, false);
+        void submitText(text, true);
       } else {
         setState('idle');
         setStatusLine(lang === 'hi-IN' ? 'कुछ सुनाई नहीं दिया — फिर hold करें' : 'No speech heard — hold mic again');
@@ -199,8 +226,9 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
     recognitionRef.current = recognition;
 
     recognition.onstart = () => {
+      recordStartedAtRef.current = Date.now();
       setState('listening');
-      setStatusLine(lang === 'hi-IN' ? 'बोलें… (Hindi / English)' : 'Speak now…');
+      setStatusLine(lang === 'hi-IN' ? 'बोलें… छोड़ें = भेजें' : 'Speak… release to send');
     };
 
     recognition.onresult = (event) => {
@@ -232,11 +260,42 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
     }
   }, [finishListening, lang]);
 
-  const stopCloudRecording = useCallback(() => {
-    recordAbortRef.current?.abort();
-  }, []);
+  const processVoiceClip = useCallback(
+    async (clip: { base64: string; sampleRate: number }) => {
+      setState('processing');
+      setStatusLine(lang === 'hi-IN' ? 'AI समझ रहा है…' : 'AI deciding what to add…');
+      try {
+        const { transcript: heard, actions } = await transcribeAndParseVoice(clip, lang);
+        if (heard) {
+          setTranscript(heard);
+          setTyped(heard);
+        }
+        if (actions.length === 0) {
+          setState('idle');
+          setStatusLine(
+            lang === 'hi-IN'
+              ? 'समझ नहीं आया — नीचे type करें'
+              : 'Could not understand — type below instead',
+          );
+          return;
+        }
+        setStatusLine(
+          lang === 'hi-IN'
+            ? `${actions.length} चीज़ add हो रही…`
+            : `Adding ${actions.length} item${actions.length > 1 ? 's' : ''}…`,
+        );
+        await runActions(actions);
+      } catch (err) {
+        setState('idle');
+        const msg = err instanceof Error ? err.message : 'Voice failed';
+        setStatusLine(msg);
+        toast.error(msg);
+      }
+    },
+    [lang, runActions],
+  );
 
-  const startCloudRecording = useCallback(async () => {
+  const startHoldPcmRecording = useCallback(async () => {
     if (recordingRef.current || !cloudMic) return;
 
     setState('processing');
@@ -258,85 +317,70 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
     }
 
     recordingRef.current = true;
+    recordStartedAtRef.current = Date.now();
     recordAbortRef.current = new AbortController();
     setState('listening');
-    setStatusLine(
-      lang === 'hi-IN'
-        ? 'बोलें… फिर mic दबाकर रोकें'
-        : 'Speak… tap mic again to stop',
-    );
+    setStatusLine(lang === 'hi-IN' ? 'बोलें… छोड़ें = भेजें' : 'Speak… release to send');
 
-    try {
-      const clip = await recordPcmVoiceClip({
-        signal: recordAbortRef.current.signal,
-        maxMs: 25000,
-      });
-      recordingRef.current = false;
-      if (!clip) {
-        setState('idle');
-        setStatusLine(
-          lang === 'hi-IN' ? 'आवाज़ नहीं सुनी — फिर कोशिश करें' : 'No speech heard — try again',
-        );
-        return;
-      }
+    holdRecordPromiseRef.current = recordPcmVoiceClip({
+      signal: recordAbortRef.current.signal,
+      maxMs: 60000,
+    });
+  }, [cloudMic, lang]);
 
-      setState('processing');
-      setStatusLine(lang === 'hi-IN' ? 'AI सुन रहा है…' : 'AI listening…');
-      const { transcript: heard, actions } = await transcribeAndParseVoice(clip, lang);
-      if (heard) setTranscript(heard);
-      if (actions.length === 0) {
-        setStatusLine(
-          lang === 'hi-IN' ? 'समझ नहीं आया — नीचे edit करके Parse' : 'Could not understand — edit text below and Parse',
-        );
-        setState('idle');
-        return;
-      }
-      setPending(actions);
-      setState('preview');
-      setStatusLine(
-        lang === 'hi-IN'
-          ? `${actions.length} चीज़ — सही है? Add दबाएं`
-          : `${actions.length} item(s) — correct? tap Add`,
-      );
-    } catch (err) {
-      recordingRef.current = false;
+  const finishHoldPcmRecording = useCallback(async () => {
+    if (!recordingRef.current) return;
+    recordAbortRef.current?.abort();
+    const promise = holdRecordPromiseRef.current;
+    holdRecordPromiseRef.current = null;
+    recordingRef.current = false;
+    recordStartedAtRef.current = 0;
+
+    const clip = promise ? await promise : null;
+    if (!clip) {
       setState('idle');
-      const msg = err instanceof Error ? err.message : 'Voice failed';
-      setStatusLine(msg);
-      toast.error(msg);
+      setStatusLine(
+        lang === 'hi-IN' ? 'बहुत छोटा — फिर hold करके बोलें' : 'Too short — hold mic and speak again',
+      );
+      return;
     }
-  }, [cloudMic, lang, runActions]);
+    await processVoiceClip(clip);
+  }, [lang, processVoiceClip]);
 
   const handleMicTap = () => {
-    if (holdToSpeak || state === 'processing') return;
+    if (whatsappHold || state === 'processing') return;
     if (iosDictation) {
       textInputRef.current?.focus();
       setStatusLine(
         lang === 'hi-IN'
-          ? 'Keyboard के 🎤 से बोलें, फिर Parse दबाएं'
-          : 'Tap 🎤 on your keyboard to speak, then Parse',
+          ? 'Keyboard 🎤 से बोलें → Enter दबाएं'
+          : 'Speak with keyboard 🎤 → press Enter to send',
       );
-      return;
     }
-    if (state === 'listening') {
-      stopCloudRecording();
-      return;
-    }
-    void startCloudRecording();
   };
 
   const handleHoldStart = (e: React.PointerEvent) => {
     e.preventDefault();
-    if (!holdToSpeak || state === 'processing') return;
+    if (!whatsappHold || state === 'processing') return;
     holdingRef.current = true;
-    void startListening();
+    if (holdToSpeak) void startListening();
+    else void startHoldPcmRecording();
   };
 
   const handleHoldEnd = () => {
-    if (!holdingRef.current && state !== 'listening') return;
-    holdingRef.current = false;
-    stopRecognition();
-    finishListening();
+    if (!whatsappHold) return;
+    if (holdToSpeak) {
+      if (!holdingRef.current && state !== 'listening') return;
+      holdingRef.current = false;
+      recordStartedAtRef.current = 0;
+      stopRecognition();
+      finishListening();
+      return;
+    }
+    if (recordingRef.current) {
+      holdingRef.current = false;
+      void finishHoldPcmRecording();
+    }
   };
 
   if (!open) return null;
@@ -378,7 +422,15 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
             ))}
           </div>
 
-          {aiEnabled && (
+          {aiEnabled && whatsappHold && (
+            <p className="text-xs text-violet-700 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
+              {lang === 'hi-IN'
+                ? 'WhatsApp जैसा — mic hold करें, बोलें, छोड़ें → AI खुद task/expense add करेगा'
+                : 'Like WhatsApp — hold mic, speak, release → AI auto-adds tasks & more'}
+            </p>
+          )}
+
+          {aiEnabled && !whatsappHold && (
             <p className="text-xs text-violet-700 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
               {lang === 'hi-IN'
                 ? 'गलत pronunciation भी ठीक — बोलें “doodh sabzi task, yaad dilana”'
@@ -389,8 +441,8 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
           {onIOS && iosDictation && (
             <p className="text-xs text-violet-700 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
               {lang === 'hi-IN'
-                ? 'iPhone: नीचे box में tap करें → keyboard पर 🎤 से Hindi/English बोलें → Parse'
-                : 'iPhone: tap the box → use keyboard 🎤 to speak → tap Parse (AI adds tasks)'}
+                ? 'iPhone: box tap → keyboard 🎤 → Enter = AI auto add'
+                : 'iPhone: tap box → keyboard 🎤 → Enter sends & AI adds automatically'}
             </p>
           )}
 
@@ -406,47 +458,57 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
             <div className="text-center mb-5">
               <button
                 type="button"
-                onPointerDown={holdToSpeak ? handleHoldStart : undefined}
-                onPointerUp={holdToSpeak ? handleHoldEnd : undefined}
-                onPointerLeave={holdToSpeak ? handleHoldEnd : undefined}
-                onPointerCancel={holdToSpeak ? handleHoldEnd : undefined}
-                onClick={holdToSpeak ? undefined : handleMicTap}
-                disabled={state === 'processing' && !recordingRef.current && !iosDictation}
+                onPointerDown={whatsappHold ? handleHoldStart : undefined}
+                onPointerUp={whatsappHold ? handleHoldEnd : undefined}
+                onPointerLeave={whatsappHold ? handleHoldEnd : undefined}
+                onPointerCancel={whatsappHold ? handleHoldEnd : undefined}
+                onClick={whatsappHold ? undefined : handleMicTap}
+                disabled={state === 'processing' && !recordingRef.current && !holdingRef.current}
+                style={{ touchAction: whatsappHold ? 'none' : undefined }}
                 className={cn(
                   'w-24 h-24 rounded-full mx-auto flex items-center justify-center text-white shadow-lg touch-manipulation select-none',
                   state === 'listening'
-                    ? 'bg-red-500 scale-110 ring-4 ring-red-200'
+                    ? 'bg-red-500 scale-110 ring-4 ring-red-200 animate-pulse'
                     : state === 'processing'
                       ? 'bg-gray-400'
                       : 'bg-violet-600 active:scale-95',
                 )}
               >
-                {state === 'processing' && !recordingRef.current ? (
+                {state === 'processing' && !recordingRef.current && !holdingRef.current ? (
                   <Loader2 size={36} className="animate-spin" />
                 ) : (
                   <Mic size={36} />
                 )}
               </button>
+              {state === 'listening' && recordSeconds > 0 && (
+                <p className="mt-2 text-xs font-mono text-red-600 tabular-nums">
+                  {Math.floor(recordSeconds / 60)}:{String(recordSeconds % 60).padStart(2, '0')}
+                </p>
+              )}
               <p className="mt-3 text-sm font-semibold">
                 {state === 'listening'
-                  ? holdToSpeak
+                  ? whatsappHold
                     ? lang === 'hi-IN'
-                      ? 'छोड़ें जब बोल लें'
-                      : 'Release when done'
+                      ? 'छोड़ें = भेजें'
+                      : 'Release to send'
                     : lang === 'hi-IN'
-                      ? 'बोलें — रोकने mic दबाएं'
-                      : 'Tap mic again to stop'
-                  : holdToSpeak
+                      ? 'बोलें…'
+                      : 'Speaking…'
+                  : state === 'processing'
                     ? lang === 'hi-IN'
-                      ? 'Hold करके बोलें'
-                      : 'Hold to speak'
-                  : iosDictation
+                      ? 'AI decide कर रहा है…'
+                      : 'AI deciding…'
+                  : whatsappHold
                     ? lang === 'hi-IN'
-                      ? 'Keyboard 🎤 के लिए tap'
-                      : 'Tap for keyboard voice'
-                    : lang === 'hi-IN'
-                      ? 'Mic दबाकर बोलें'
-                      : 'Tap mic to speak'}
+                      ? 'Hold करके बोलें (WhatsApp जैसा)'
+                      : 'Hold to talk (like WhatsApp)'
+                    : iosDictation
+                      ? lang === 'hi-IN'
+                        ? 'Type box → keyboard 🎤'
+                        : 'Type box → keyboard 🎤'
+                      : lang === 'hi-IN'
+                        ? 'Mic hold करें'
+                        : 'Hold mic to speak'}
               </p>
               {transcript && (
                 <p className="mt-2 text-sm text-gray-600 italic px-2">&ldquo;{transcript}&rdquo;</p>
@@ -494,7 +556,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    void submitText(typed, false);
+                    void submitText(typed, true);
                   }
                 }}
                 placeholder={hints[0]}
@@ -505,11 +567,11 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
               />
               <button
                 type="button"
-                onClick={() => void submitText(typed, false)}
+                onClick={() => void submitText(typed, true)}
                 disabled={!typed.trim() || state === 'processing'}
                 className="px-4 py-3 bg-brand-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 touch-manipulation shrink-0"
               >
-                {lang === 'hi-IN' ? 'देखें' : 'Parse'}
+                {lang === 'hi-IN' ? 'भेजें' : 'Send'}
               </button>
             </div>
           </div>
@@ -525,7 +587,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                   type="button"
                   onClick={() => {
                     setTyped(hint);
-                    void submitText(hint, false);
+                    void submitText(hint, true);
                   }}
                   className="text-xs text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-full px-3 py-1.5 touch-manipulation"
                 >

@@ -52,7 +52,7 @@ export function SimpleTodayHero({
           </div>
           <div>
             <p className="font-semibold">AI voice add</p>
-            <p className="text-xs text-white/85">Speak Hindi / English — AI fixes you</p>
+            <p className="text-xs text-white/85">Hold mic → speak → release (WhatsApp style)</p>
           </div>
         </button>
 
