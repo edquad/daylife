@@ -259,8 +259,8 @@ export function SettingsPage() {
           <Bell size={18} className="text-violet-600" /> Home screen alerts
         </h2>
         <p className="text-sm text-violet-900/90">
-          When someone you share with adds a task, shopping item, or expense — popup on your phone
-          <strong> even if Rozka is closed</strong>.
+          WhatsApp-style alerts: chat messages (with sound), tasks, and shared updates —
+          popup on your phone <strong>even when Rozka is closed</strong>.
         </p>
         {!isStandalone && (
           <p className="text-xs text-violet-800 bg-violet-100/80 border border-violet-200 rounded-lg px-3 py-2">
@@ -272,7 +272,7 @@ export function SettingsPage() {
         ) : homePushOn && notifPermission === 'granted' ? (
           <div className="space-y-2">
             <p className="text-sm text-green-800 bg-green-100 border border-green-200 rounded-lg px-3 py-2">
-              Home screen alerts are on. Popups when your partner shares something new.
+              Alerts on — chat messages with sound, home screen popups, and app icon badge.
             </p>
             {alertTopic && (
               <p className="text-xs text-violet-800">

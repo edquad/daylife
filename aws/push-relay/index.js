@@ -33,7 +33,7 @@ exports.handler = async (event) => {
     return response(400, { ok: false, error: 'Invalid JSON' });
   }
 
-  const { subscription, title, body: text, url } = payload;
+  const { subscription, title, body: text, url, tag } = payload;
   if (!subscription?.endpoint) {
     return response(400, { ok: false, error: 'Missing subscription' });
   }
@@ -51,7 +51,7 @@ exports.handler = async (event) => {
         title: title || 'Rozka',
         body: text || '',
         url: url || '/',
-        tag: 'rozka-shared',
+        tag: tag || 'rozka-shared',
       }),
     );
     return response(200, { ok: true });

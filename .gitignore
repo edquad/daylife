@@ -3,3 +3,8 @@ dist/
 .env
 *.log
 .DS_Store
+aws/**/*.zip
+aws/**/node_modules/
+aws/.aws-sam/
+aws/**/out*.json
+repair-body.json

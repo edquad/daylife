@@ -185,7 +185,19 @@ function ChatThread({ spaceId }: { spaceId: string }) {
           <p className="text-center text-sm text-gray-400 py-8">No messages yet — say hi!</p>
         )}
         {messages.map((msg) => {
-          const mine = msg.authorAccountId === accountId || msg.authorId === user?.id;
+          const isAi = msg.kind === 'ai' || msg.authorId === 'rozka-ai';
+          const mine = !isAi && (msg.authorAccountId === accountId || msg.authorId === user?.id);
+          if (isAi) {
+            return (
+              <div key={msg.id} className="flex justify-center">
+                <div className="max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm bg-gradient-to-br from-violet-50 to-teal-50 border border-violet-100 text-gray-800">
+                  <p className="text-[10px] font-semibold text-violet-700 mb-1">Rozka AI</p>
+                  <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                  <p className="text-[10px] mt-1 text-gray-400">{formatMessageTime(msg.createdAt)}</p>
+                </div>
+              </div>
+            );
+          }
           return (
             <div key={msg.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
               <div

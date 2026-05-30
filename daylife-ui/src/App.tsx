@@ -15,6 +15,7 @@ import { AiCalendarPage } from './features/calendar/AiCalendarPage';
 import { DailyLifePage } from './features/daily/DailyLifePage';
 import { VisionBoardPage } from './features/vision/VisionBoardPage';
 import { SettingsPage } from './features/settings/SettingsPage';
+import { GmailMailPage } from './features/mail/GmailMailPage';
 import { ConnectionsPage } from './features/connections/ConnectionsPage';
 import { ChatPage } from './features/chat/ChatPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -78,6 +79,7 @@ export default function App() {
               <Route path="share" element={<ErrorBoundary><ConnectionsPage /></ErrorBoundary>} />
               <Route path="chat" element={<ErrorBoundary><ChatPage /></ErrorBoundary>} />
               <Route path="chat/:spaceId" element={<ErrorBoundary><ChatPage /></ErrorBoundary>} />
+              <Route path="mail" element={<ErrorBoundary><GmailMailPage /></ErrorBoundary>} />
               <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>

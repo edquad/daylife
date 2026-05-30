@@ -1,6 +1,6 @@
 /**
  * Rozka cost guard — auto-pause paid Lambdas when estimated AWS bill hits cap.
- * Checks billing every 6 hours; sets reserved concurrency to 0 to stop new cost.
+ * Lambda runs in ap-south-1 with everything else; billing metrics are read from us-east-1 (AWS global).
  */
 const {
   LambdaClient,

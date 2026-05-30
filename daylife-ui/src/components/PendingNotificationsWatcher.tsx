@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useConnections, forceSyncInbox } from '../hooks/useConnections';
 import { useInviteAcceptedNotifier } from '../hooks/useInviteActions';
 import { useGitHubSync } from '../features/sync/GitHubSyncContext';
-import { notifyNewInvites, updatePendingBadge } from '../lib/pendingNotifications';
+import { notifyNewInvites } from '../lib/pendingNotifications';
 
 const POLL_MS = 45_000;
 
@@ -17,7 +17,6 @@ export function PendingNotificationsWatcher() {
   const pendingReceived = connections.filter((c) => c.status === 'pending_received');
 
   useEffect(() => {
-    updatePendingBadge(pendingReceived.length);
     if (pendingReceived.length > prevPendingCount.current) {
       notifyNewInvites(pendingReceived);
     }

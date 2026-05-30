@@ -133,6 +133,7 @@ export interface ChatMessage {
   authorAccountId: string;
   content: string;
   createdAt: string;
+  kind?: 'user' | 'ai';
 }
 
 export interface SharedSpaceData {
@@ -152,6 +153,7 @@ export interface SharedSpaceData {
   routineLogs: RoutineDayLog[];
   visionBoard: VisionBoardItem[];
   messages: ChatMessage[];
+  taskReminderLog?: { date: string; taskKey: string };
   updatedAt?: string;
 }
 

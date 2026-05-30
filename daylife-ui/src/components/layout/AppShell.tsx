@@ -8,12 +8,14 @@ import { DayPicker } from '../DayPicker';
 import { InstallAppBanner } from '../InstallAppBanner';
 import { PendingNotificationsPrompt } from '../PendingNotificationsPrompt';
 import { PendingNotificationsWatcher } from '../PendingNotificationsWatcher';
+import { SharedTaskReminderWatcher } from '../SharedTaskReminderWatcher';
+import { ChatNotificationWatcher } from '../ChatNotificationWatcher';
 import { AppLogo } from '../AppLogo';
 import { APP_NAME, APP_TAGLINE } from '../../lib/brand';
 import {
   LayoutDashboard, CheckSquare, Receipt, Settings,
   Menu, X, Plus, LogOut, BarChart3, Cloud, CloudOff, Loader2, Star, HandCoins, Users, Mic, MessageCircle,
-  ShoppingCart, Sun, Bell, Calendar,
+  ShoppingCart, Sun, Bell, Calendar, Mail,
 } from 'lucide-react';
 import { VoiceAssistantSheet, VoiceMicButton } from '../VoiceAssistant';
 import { RecoveryCodeModal } from '../RecoveryCodeModal';
@@ -45,6 +47,7 @@ const navGroups = [
     items: [
       { path: '/share', label: 'Share', icon: Users },
       { path: '/chat', label: 'Chat', icon: MessageCircle, hint: 'Message your connections' },
+      { path: '/mail', label: 'Mail', icon: Mail, hint: 'Gmail inbox · AI drafts' },
       { path: '/settings', label: 'Settings', icon: Settings },
     ],
   },
@@ -109,6 +112,8 @@ export function AppShell() {
   return (
     <div className="min-h-dvh flex">
       <PendingNotificationsWatcher />
+      <SharedTaskReminderWatcher />
+      <ChatNotificationWatcher />
       {pendingRecoveryCode && (
         <RecoveryCodeModal code={pendingRecoveryCode} onClose={acknowledgeRecoveryCode} />
       )}

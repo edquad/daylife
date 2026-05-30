@@ -75,11 +75,13 @@ export async function subscribeToHomeScreenPush(): Promise<boolean> {
 
   await saveAccountPushSubscription(accountId, subscription.toJSON());
   localStorage.setItem('daylife_home_push_enabled', '1');
+  localStorage.setItem('daylife_notifications_enabled', '1');
 
   try {
     new Notification(`${APP_NAME} — alerts on`, {
-      body: 'You will get home screen popups when someone you share with adds tasks or lists.',
+      body: 'Chat messages, tasks, and shared updates — with sound on your home screen.',
       icon: `${import.meta.env.BASE_URL || '/'}icon.svg`.replace(/\/+/g, '/'),
+      silent: false,
     });
   } catch {
     /* ignore */

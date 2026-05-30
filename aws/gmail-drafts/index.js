@@ -1,7 +1,7 @@
 const { google } = require('googleapis');
 const { loadSecrets } = require('./lib/secrets');
 const tokenStore = require('./lib/tokenStore');
-const { oauthClient, refreshIfNeeded, processAccount } = require('./lib/draftService');
+const { oauthClient, refreshIfNeeded, processAccount, listInboxPreview, getMessageDetail, generateDraftForMessage, sendDraftReply } = require('./lib/draftService');
 
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
@@ -145,25 +145,31 @@ exports.handler = async (event) => {
     } catch {
       return redirect(`${APP_ORIGIN}/daylife/settings?gmail=error&reason=bad_state`);
     }
-    const oauth2 = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_REDIRECT_URI,
-    );
-    const { tokens } = await oauth2.getToken(String(q.code || ''));
-    oauth2.setCredentials(tokens);
-    const gmail = google.gmail({ version: 'v1', auth: oauth2 });
-    const profile = await gmail.users.getProfile({ userId: 'me' });
+    try {
+      const oauth2 = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        process.env.GOOGLE_REDIRECT_URI,
+      );
+      const { tokens } = await oauth2.getToken(String(q.code || ''));
+      oauth2.setCredentials(tokens);
+      const gmail = google.gmail({ version: 'v1', auth: oauth2 });
+      const profile = await gmail.users.getProfile({ userId: 'me' });
 
-    await tokenStore.saveAccount(state.accountId, {
-      accountId: state.accountId,
-      email: profile.data.emailAddress,
-      tokens,
-      processedIds: [],
-      connectedAt: new Date().toISOString(),
-    });
+      await tokenStore.saveAccount(state.accountId, {
+        accountId: state.accountId,
+        email: profile.data.emailAddress,
+        tokens,
+        processedIds: [],
+        connectedAt: new Date().toISOString(),
+      });
 
-    return redirect(settingsReturnUrl(state.returnUrl));
+      return redirect(settingsReturnUrl(state.returnUrl));
+    } catch (err) {
+      console.error('gmail callback failed', err.message);
+      const reason = encodeURIComponent(String(err.message || 'connect_failed').slice(0, 180));
+      return redirect(`${APP_ORIGIN}/daylife/settings?gmail=error&reason=${reason}`);
+    }
   }
 
   if (path.endsWith('/gmail/status') && method === 'GET') {
@@ -183,6 +189,66 @@ exports.handler = async (event) => {
     });
   }
 
+  if (path.endsWith('/gmail/inbox') && method === 'GET') {
+    const accountId = String(parseQuery(event).accountId || '').trim();
+    if (!accountId) return json(400, { ok: false, error: 'Missing accountId' });
+    const stored = await tokenStore.loadAccount(accountId);
+    if (!stored) return json(404, { ok: false, error: 'Gmail not connected' });
+    const { stored: updated, items } = await listInboxPreview(stored);
+    await tokenStore.saveAccount(accountId, updated);
+    return json(200, { ok: true, email: updated.email, messages: items });
+  }
+
+  if (path.endsWith('/gmail/message') && method === 'GET') {
+    const q = parseQuery(event);
+    const accountId = String(q.accountId || '').trim();
+    const messageId = String(q.messageId || '').trim();
+    if (!accountId || !messageId) return json(400, { ok: false, error: 'Missing accountId or messageId' });
+    const stored = await tokenStore.loadAccount(accountId);
+    if (!stored) return json(404, { ok: false, error: 'Gmail not connected' });
+    const { stored: updated, message, draft } = await getMessageDetail(stored, messageId);
+    await tokenStore.saveAccount(accountId, updated);
+    return json(200, { ok: true, message, draft });
+  }
+
+  if (path.endsWith('/gmail/draft-reply') && method === 'POST') {
+    const body = parseBody(event);
+    const accountId = String(body.accountId || '').trim();
+    const messageId = String(body.messageId || '').trim();
+    if (!accountId || !messageId) return json(400, { ok: false, error: 'Missing accountId or messageId' });
+    const stored = await tokenStore.loadAccount(accountId);
+    if (!stored) return json(404, { ok: false, error: 'Gmail not connected' });
+    try {
+      const { stored: updated, draft } = await generateDraftForMessage(stored, messageId);
+      await tokenStore.saveAccount(accountId, updated);
+      return json(200, { ok: true, draft });
+    } catch (err) {
+      console.error('draft-reply failed', err.message);
+      return json(500, { ok: false, error: err.message || 'Could not create draft' });
+    }
+  }
+
+  if (path.endsWith('/gmail/send') && method === 'POST') {
+    const body = parseBody(event);
+    const accountId = String(body.accountId || '').trim();
+    const messageId = String(body.messageId || '').trim();
+    const draftId = String(body.draftId || '').trim();
+    const replyText = String(body.replyText || '');
+    if (!accountId || !messageId || !draftId) {
+      return json(400, { ok: false, error: 'Missing accountId, messageId, or draftId' });
+    }
+    const stored = await tokenStore.loadAccount(accountId);
+    if (!stored) return json(404, { ok: false, error: 'Gmail not connected' });
+    try {
+      const { stored: updated } = await sendDraftReply(stored, { messageId, draftId, replyText });
+      await tokenStore.saveAccount(accountId, updated);
+      return json(200, { ok: true, sent: true });
+    } catch (err) {
+      console.error('send failed', err.message);
+      return json(500, { ok: false, error: err.message || 'Could not send email' });
+    }
+  }
+
   if (path.endsWith('/gmail/disconnect') && method === 'POST') {
     const { accountId } = parseBody(event);
     if (!accountId) return json(400, { ok: false, error: 'Missing accountId' });
@@ -193,12 +259,14 @@ exports.handler = async (event) => {
   if (path.endsWith('/gmail/process') && method === 'POST') {
     const body = parseBody(event);
     const accountId = String(body.accountId || '').trim();
+    const force = Boolean(body.force);
     if (accountId) {
       const stored = await tokenStore.loadAccount(accountId);
       if (!stored) return json(404, { ok: false, error: 'Gmail not connected' });
-      const { stored: updated, results } = await processAccount(stored);
+      if (force) stored.processedIds = [];
+      const { stored: updated, results, stats } = await processAccount(stored, { force });
       await tokenStore.saveAccount(accountId, updated);
-      return json(200, { ok: true, draftsCreated: results.length, results });
+      return json(200, { ok: true, draftsCreated: results.length, results, stats });
     }
     const ids = await tokenStore.listAccountIds();
     let total = 0;
@@ -214,23 +282,6 @@ exports.handler = async (event) => {
       }
     }
     return json(200, { ok: true, accounts: ids.length, draftsCreated: total });
-  }
-
-  if (bodyAction(event) === 'processAll') {
-    const ids = await tokenStore.listAccountIds();
-    let total = 0;
-    for (const id of ids) {
-      try {
-        const stored = await tokenStore.loadAccount(id);
-        if (!stored) continue;
-        const { stored: updated, results } = await processAccount(stored);
-        await tokenStore.saveAccount(id, updated);
-        total += results.length;
-      } catch (err) {
-        console.error('scheduled process failed', id, err.message);
-      }
-    }
-    return { ok: true, accounts: ids.length, draftsCreated: total };
   }
 
   return json(404, { ok: false, error: 'Not found' });

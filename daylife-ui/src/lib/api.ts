@@ -51,8 +51,16 @@ import {
   pruneStaleConnections,
 } from './sharing';
 import { fetchFromGitHub, flushCloudSyncNow, isGitHubConfigured, loadGitHubConfig } from './githubSync';
+import { notifyChatMessagePush } from './chatNotifications';
 import { notifySharedConnectionPartner, notifyPartnerHomeScreen } from './homeScreenPush';
 import { countUnreadMessages } from './chatReadState';
+import {
+  buildEveningTaskReminderMessage,
+  partnerMissedTasks,
+  resolvePartnerUserId,
+  shouldSkipReminder,
+  taskReminderKey,
+} from './sharedTaskReminders';
 
 export type { Connection, ShareFeature, ShareInvite, ChatMessage };
 export { ALL_SHARE_FEATURES, SHARE_FEATURE_LABELS, SHARE_FEATURE_GROUPS };
@@ -2803,6 +2811,53 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
     return threads as T;
   }
 
+  const eveningReminderMatch = route.match(/^\/shared\/([^/]+)\/evening-task-reminder$/);
+  if (eveningReminderMatch && method === 'POST') {
+    const spaceId = eveningReminderMatch[1];
+    const conn = getSharedConnection(data, spaceId);
+    assertSharedFeature(conn, 'tasks');
+    assertSharedFeature(conn, 'chat');
+    const accountId = getActiveAccountId();
+    if (!accountId) throw new ApiError(403, 'Not signed in');
+
+    const space = await requireSharedSpace(conn, data);
+    const today = todayISO();
+    const partnerUserId = resolvePartnerUserId(space, conn, accountId);
+    const missed = partnerMissedTasks(space.tasks, partnerUserId, sessionId!, today);
+    if (missed.length === 0) {
+      return { ok: true, sent: false, reason: 'no_missed_tasks' } as T;
+    }
+
+    const key = taskReminderKey(missed);
+    if (shouldSkipReminder(space, today, key)) {
+      return { ok: true, sent: false, reason: 'already_sent' } as T;
+    }
+
+    const partnerName = partnerLabel(conn);
+    const content = buildEveningTaskReminderMessage(partnerName, missed, today);
+    const message: ChatMessage = {
+      id: uid(),
+      authorId: 'rozka-ai',
+      authorAccountId: 'rozka-ai',
+      content,
+      createdAt: new Date().toISOString(),
+      kind: 'ai',
+    };
+    space.messages = space.messages || [];
+    space.messages.push(message);
+    space.taskReminderLog = { date: today, taskKey: key };
+    await saveSharedSpace(space);
+
+    void notifyChatMessagePush({
+      partnerAccountId: conn.partnerAccountId,
+      senderLabel: 'Rozka AI',
+      body: content,
+      spaceId,
+    });
+
+    return { ok: true, sent: true, message, taskCount: missed.length } as T;
+  }
+
   const sharedMessagesMatch = route.match(/^\/shared\/([^/]+)\/messages$/);
   if (sharedMessagesMatch) {
     const spaceId = sharedMessagesMatch[1];
@@ -2842,12 +2897,12 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       await saveSharedSpace(space);
       const me = data.users.find((u) => u.id === sessionId);
       if (me?.username) {
-        void notifySharedConnectionPartner(
-          conn.partnerAccountId,
-          me.username,
-          content.slice(0, 120),
-          'chat',
-        );
+        void notifyChatMessagePush({
+          partnerAccountId: conn.partnerAccountId,
+          senderLabel: me.name || `@${me.username}`,
+          body: content,
+          spaceId,
+        });
       }
       return message as T;
     }

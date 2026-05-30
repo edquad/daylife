@@ -1,7 +1,7 @@
 self.addEventListener('push', (event) => {
   let payload = {
     title: 'Rozka',
-    body: 'Something new from someone you share with',
+    body: 'New message',
     url: self.registration.scope,
     tag: 'rozka-shared',
   };
@@ -15,16 +15,18 @@ self.addEventListener('push', (event) => {
   }
 
   const icon = new URL('icon.svg', self.registration.scope).href;
-  const badge = new URL('pwa-192x192.png', self.registration.scope).href;
+  const isChat = String(payload.tag || '').startsWith('rozka-chat-');
 
   event.waitUntil(
     self.registration.showNotification(payload.title || 'Rozka', {
       body: payload.body || '',
       icon,
-      badge,
+      badge: icon,
       tag: payload.tag || 'rozka-shared',
+      renotify: true,
+      silent: false,
+      vibrate: isChat ? [120, 60, 120, 60, 120] : [180, 80, 180],
       data: { url: payload.url || self.registration.scope },
-      vibrate: [180, 80, 180],
       requireInteraction: false,
     }),
   );
@@ -37,7 +39,11 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
       for (const client of windowClients) {
-        if (client.url.startsWith(self.registration.scope.slice(0, -1)) && 'focus' in client) {
+        const scopeRoot = self.registration.scope.replace(/\/$/, '');
+        if (client.url.startsWith(scopeRoot) && 'focus' in client) {
+          if ('navigate' in client && targetUrl) {
+            return client.focus().then(() => client.navigate(targetUrl));
+          }
           return client.focus();
         }
       }

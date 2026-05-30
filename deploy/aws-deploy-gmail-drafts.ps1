@@ -118,7 +118,7 @@ $envJson = @"
     "GOOGLE_REDIRECT_URI": "$redirectUri",
     "GMAIL_TOKEN_BUCKET": "$BucketName",
     "APP_ORIGIN": "https://edquad.github.io",
-    "BEDROCK_MODEL_ID": "amazon.nova-lite-v1:0",
+    "BEDROCK_MODEL_IDS": "apac.amazon.nova-lite-v1:0,apac.amazon.nova-micro-v1:0",
     "GMAIL_MAX_DRAFTS_PER_RUN": "5"
   }
 }
@@ -155,10 +155,18 @@ $routes = @(
   "GET /gmail/auth/start",
   "GET /gmail/auth/callback",
   "GET /gmail/status",
+  "GET /gmail/inbox",
+  "GET /gmail/message",
+  "POST /gmail/draft-reply",
+  "POST /gmail/send",
   "POST /gmail/disconnect",
   "POST /gmail/process",
   "OPTIONS /gmail/auth/start",
   "OPTIONS /gmail/status",
+  "OPTIONS /gmail/inbox",
+  "OPTIONS /gmail/message",
+  "OPTIONS /gmail/draft-reply",
+  "OPTIONS /gmail/send",
   "OPTIONS /gmail/disconnect",
   "OPTIONS /gmail/process"
 )

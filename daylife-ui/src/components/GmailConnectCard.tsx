@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { Mail, Loader2, Unplug, Sparkles } from 'lucide-react';
 import { getActiveAccountId } from '../lib/accounts';
 import {
@@ -32,13 +33,15 @@ export function GmailConnectCard() {
   });
 
   const checkNow = useMutation({
-    mutationFn: runGmailDraftCheck,
+    mutationFn: () => runGmailDraftCheck({ force: true }),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['gmail-status'] });
       if (res.draftsCreated > 0) {
-        toast.success(`${res.draftsCreated} draft${res.draftsCreated === 1 ? '' : 's'} created in Gmail`);
+        toast.success(`${res.draftsCreated} AI draft${res.draftsCreated === 1 ? '' : 's'} ready — open Mail tab`);
+      } else if (res.stats?.scanned) {
+        toast.success(`Checked ${res.stats.scanned} unread — no new drafts needed`);
       } else {
-        toast.success('No new human emails needed a draft');
+        toast.success('No unread human emails in inbox (last 7 days)');
       }
     },
     onError: (err: Error) => toast.error(err.message),
@@ -104,6 +107,13 @@ export function GmailConnectCard() {
             ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link
+              to="/mail"
+              className="inline-flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 text-teal-800 px-4 py-2 text-sm font-medium"
+            >
+              <Mail size={16} />
+              Open Mail tab
+            </Link>
             <button
               type="button"
               onClick={() => checkNow.mutate()}
@@ -123,6 +133,9 @@ export function GmailConnectCard() {
               Disconnect
             </button>
           </div>
+          <p className="text-xs text-gray-500">
+            View drafts and send from the <Link to="/mail" className="underline">Mail</Link> tab. Nothing sends automatically.
+          </p>
         </div>
       ) : (
         <button
