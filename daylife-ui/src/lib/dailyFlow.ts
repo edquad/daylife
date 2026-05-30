@@ -21,9 +21,9 @@ export function phaseGreeting(name?: string, phase = getDayPhase()): string {
 }
 
 export function phaseHint(phase: DayPhase): string {
-  if (phase === 'morning') return 'Start with your dreams, then morning habits, then today\'s list.';
-  if (phase === 'afternoon') return 'Check tasks and shopping — finish strong.';
-  return 'Wind down with evening habits and reflect on your day.';
+  if (phase === 'morning') return 'Rozka AI fills your morning — then check today\'s life lesson.';
+  if (phase === 'afternoon') return 'Ask AI by voice — it fixes pronunciation and adds tasks.';
+  return 'Evening reflection + AI future plan — small steps build big dreams.';
 }
 
 export function defaultDailyTab(phase: DayPhase): 'shopping' | 'routines' | 'reminders' {

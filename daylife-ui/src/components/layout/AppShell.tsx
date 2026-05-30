@@ -22,9 +22,9 @@ const navGroups = [
   {
     label: 'Your day',
     items: [
-      { path: '/', label: 'Today', icon: LayoutDashboard, hint: 'Voice · tasks · morning' },
+      { path: '/', label: 'Today', icon: LayoutDashboard, hint: 'AI coach · voice · tasks' },
       { path: '/daily', label: 'Daily lists', icon: Sun, hint: 'Shopping · routines · dates' },
-      { path: '/tasks', label: 'All tasks', icon: CheckSquare, hint: 'Search & filter inbox' },
+      { path: '/tasks', label: 'All tasks', icon: CheckSquare, hint: 'AI & manual tasks' },
     ],
   },
   {
@@ -37,7 +37,7 @@ const navGroups = [
   },
   {
     label: 'Dreams',
-    items: [{ path: '/vision', label: 'Dreams & goals', icon: Star, hint: 'Long-term vision' }],
+    items: [{ path: '/vision', label: 'AI future plan', icon: Star, hint: 'Dreams → AI daily tasks' }],
   },
   {
     label: 'More',

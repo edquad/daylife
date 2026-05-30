@@ -1,5 +1,6 @@
 import { Mic, Sparkles, Sun, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { APP_NAME } from '../lib/brand';
 
 interface SimpleTodayHeroProps {
   greeting: string;
@@ -26,7 +27,7 @@ export function SimpleTodayHero({
     <section className="rounded-2xl bg-gradient-to-br from-brand-600 to-teal-600 text-white p-5 shadow-md space-y-4">
       <div>
         <p className="text-sm text-white/85">{greeting}</p>
-        <h2 className="text-xl font-bold mt-0.5">Your simple day</h2>
+        <h2 className="text-xl font-bold mt-0.5">{APP_NAME} · your day</h2>
         {total > 0 && (
           <div className="mt-3">
             <div className="flex justify-between text-xs text-white/90 mb-1">
@@ -50,8 +51,8 @@ export function SimpleTodayHero({
             <Mic size={24} />
           </div>
           <div>
-            <p className="font-semibold">Speak or type</p>
-            <p className="text-xs text-white/85">Hindi / English — AI fixes mistakes</p>
+            <p className="font-semibold">AI voice add</p>
+            <p className="text-xs text-white/85">Speak Hindi / English — AI fixes you</p>
           </div>
         </button>
 
@@ -69,8 +70,8 @@ export function SimpleTodayHero({
               {morningLoading ? <Sparkles size={24} className="animate-pulse" /> : <Sun size={24} />}
             </div>
             <div>
-              <p className="font-semibold">Fill my morning</p>
-              <p className="text-xs text-amber-900/80">AI adds today&apos;s tasks from routines</p>
+              <p className="font-semibold">AI morning plan</p>
+              <p className="text-xs text-amber-900/80">Auto-creates today&apos;s tasks</p>
             </div>
           </button>
         )}

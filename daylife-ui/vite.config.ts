@@ -15,9 +15,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
-        name: 'Rozka — Your day in one place',
-        short_name: 'Rozka',
-        description: 'Tasks, expenses, shopping, routines & shared lists — your daily life in one simple app.',
+        name: 'Rozka AI — Your AI life companion',
+        short_name: 'Rozka AI',
+        description: 'AI plans your day, auto-creates tasks, guides your future, and shares life lessons.',
         theme_color: '#7C3AED',
         background_color: '#F9FAFB',
         display: 'standalone',

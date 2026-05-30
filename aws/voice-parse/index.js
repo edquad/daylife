@@ -16,7 +16,7 @@ const MODEL_IDS = (process.env.BEDROCK_MODEL_IDS || 'apac.amazon.nova-lite-v1:0,
   .map((s) => s.trim())
   .filter(Boolean);
 
-const SYSTEM_PROMPT = `You parse messy spoken commands for Rozka — a personal task app. Input is from speech-to-text: expect typos, missing words, Hindi, English, or Hinglish mixed.
+const SYSTEM_PROMPT = `You parse messy spoken commands for Rozka AI — an AI life companion app. Input is from speech-to-text: expect typos, missing words, Hindi, English, or Hinglish mixed.
 
 Return ONLY valid JSON (no markdown):
 {"actions":[...]}
@@ -77,6 +77,27 @@ Rules:
 - Prefer Hindi titles if lang is hi-IN, English if en-US; keep titles under 6 words
 - Max 8 tasks total
 - No reminders, expenses, or shopping — tasks only`;
+
+const LIFE_COACH_PROMPT = `You are Rozka AI — a warm, practical life coach for Indian users (Hindi or English).
+
+You receive a snapshot of the user's real data: tasks done/total, overdue count, dreams/goals, routines, shopping, expenses.
+
+Return ONLY valid JSON (no markdown):
+{
+  "lesson": "one short life lesson based on their data (max 2 sentences, practical not preachy)",
+  "futureStep": "one concrete step toward their dreams this week",
+  "encouragement": "one warm line — use their first name if snapshot.userName is provided",
+  "suggestedTasks": [{"title":"short task","area":"PERSONAL"|"WORK"|"HOME"}]
+}
+
+Rules:
+- Base advice ONLY on snapshot data provided — do not invent facts
+- If dreams array is non-empty, connect futureStep to a dream
+- If overdueCount > 0, lesson should gently address finishing old tasks
+- If tasksDone equals tasksTotal and total > 0, celebrate consistency
+- suggestedTasks: 0–3 items max, due today, short titles
+- Use Hindi if lang is hi-IN, English if en-US
+- Kind, simple words — like a wise friend, not a lecture`;
 
 function response(statusCode, body) {
   return { statusCode, headers: corsHeaders, body: JSON.stringify(body) };
@@ -169,6 +190,32 @@ function sanitizeActions(raw, selectedDate) {
   return out;
 }
 
+function sanitizeSuggestedTasks(raw, dueDate) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const title = String(item.title || '').trim();
+    if (title.length < 2) continue;
+    out.push({
+      type: 'task',
+      title,
+      area: VALID_AREAS.has(item.area) ? item.area : 'PERSONAL',
+      dueDate,
+    });
+  }
+  return out.slice(0, 3);
+}
+
+function sanitizeLifeCoach(raw, dueDate) {
+  return {
+    lesson: String(raw.lesson || '').trim().slice(0, 600),
+    futureStep: String(raw.futureStep || '').trim().slice(0, 400),
+    encouragement: String(raw.encouragement || '').trim().slice(0, 300),
+    suggestedTasks: sanitizeSuggestedTasks(raw.suggestedTasks, dueDate),
+  };
+}
+
 async function invokeModel(client, modelId, transcript, lang, context, systemPrompt = SYSTEM_PROMPT) {
   const userPayload = JSON.stringify({ transcript, lang, context });
   const command = new ConverseCommand({
@@ -195,6 +242,20 @@ async function invokeMorningSetup(client, modelId, lang, context) {
   const text = result.output?.message?.content?.map((c) => c.text).filter(Boolean).join('') || '';
   const parsed = extractJson(text);
   return sanitizeActions(parsed.actions, context.today || context.selectedDate);
+}
+
+async function invokeLifeCoach(client, modelId, lang, context) {
+  const userPayload = JSON.stringify({ mode: 'life_coach', lang, context });
+  const command = new ConverseCommand({
+    modelId,
+    system: [{ text: LIFE_COACH_PROMPT }],
+    messages: [{ role: 'user', content: [{ text: userPayload }] }],
+    inferenceConfig: { maxTokens: 900, temperature: 0.35 },
+  });
+  const result = await client.send(command);
+  const text = result.output?.message?.content?.map((c) => c.text).filter(Boolean).join('') || '';
+  const parsed = extractJson(text);
+  return sanitizeLifeCoach(parsed, context.today || context.selectedDate);
 }
 
 async function transcribePcm(pcmBuffer, languageCode, sampleRateHertz) {
@@ -269,6 +330,24 @@ async function parseMorningSetup(lang, context) {
   throw lastError || new Error('Morning setup failed');
 }
 
+async function parseLifeCoach(lang, context) {
+  const region = process.env.AWS_REGION || 'ap-south-1';
+  const client = new BedrockRuntimeClient({ region });
+  let lastError = null;
+
+  for (const modelId of MODEL_IDS) {
+    try {
+      const coach = await invokeLifeCoach(client, modelId, lang, context);
+      if (!coach.lesson) throw new Error('Empty life coach response');
+      return { coach, model: modelId };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Life coach failed');
+}
+
 exports.handler = async (event) => {
   const method = event.requestContext?.http?.method || event.httpMethod || 'GET';
 
@@ -292,7 +371,27 @@ exports.handler = async (event) => {
   const selectedDate =
     typeof payload.context?.selectedDate === 'string' ? payload.context.selectedDate : today;
   const routines = Array.isArray(payload.context?.routines) ? payload.context.routines : [];
-  const context = { today, selectedDate, lang, routines };
+  const snapshot = payload.context?.snapshot && typeof payload.context.snapshot === 'object'
+    ? payload.context.snapshot
+    : {};
+  const context = { today, selectedDate, lang, routines, snapshot };
+
+  if (payload.mode === 'life_coach') {
+    try {
+      const { coach, model } = await parseLifeCoach(lang, context);
+      return response(200, {
+        ok: true,
+        lesson: coach.lesson,
+        futureStep: coach.futureStep,
+        encouragement: coach.encouragement,
+        suggestedTasks: coach.suggestedTasks,
+        model,
+      });
+    } catch (err) {
+      const message = err?.message || 'Life coach failed';
+      return response(500, { ok: false, error: message });
+    }
+  }
 
   if (payload.mode === 'morning_setup') {
     try {

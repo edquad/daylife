@@ -1,3 +1,4 @@
+import { APP_NAME } from '../lib/brand';
 import { cn } from '../lib/utils';
 
 interface AppLogoProps {
@@ -18,7 +19,7 @@ export function AppLogo({ size = 'md', className, showShadow = true }: AppLogoPr
   return (
     <img
       src={`${base}icon.svg`}
-      alt="Rozka"
+      alt={APP_NAME}
       className={cn(sizes[size], showShadow && 'shadow-md', className)}
     />
   );

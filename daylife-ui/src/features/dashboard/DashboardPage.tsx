@@ -49,7 +49,10 @@ import { getDayPhase, phaseGreeting, phaseHint } from '../../lib/dailyFlow';
 import { getSimpleMode } from '../../lib/simpleMode';
 import { runMorningSetup, shouldOfferMorningSetup } from '../../lib/morningSetup';
 import { SimpleTodayHero, SimpleMoreToggle } from '../../components/SimpleTodayHero';
+import { AiCoachCard } from '../../components/AiCoachCard';
 import { toast } from '../../components/Toaster';
+import type { LifeSnapshot } from '../../lib/aiCoach';
+import { APP_TAGLINE } from '../../lib/brand';
 
 interface PersonSummary {
   userId: string;
@@ -251,6 +254,24 @@ export function DashboardPage() {
 
   const openVoice = () => window.dispatchEvent(new Event('rozka-open-voice'));
 
+  const routinesPending = routines.reduce(
+    (n, r) => n + r.items.filter((i) => !i.done).length,
+    0,
+  );
+
+  const lifeSnapshot: LifeSnapshot = {
+    userName: user?.name,
+    today: selectedDate,
+    tasksDone: todayDoneAll,
+    tasksTotal: todayTotal,
+    overdueCount: data?.overdueCount ?? 0,
+    dreams: visionPreview.slice(0, 3).map((v) => v.title),
+    routinesPending,
+    shoppingPending: shoppingPending.length,
+    monthTasksPending: monthTasksPending.length,
+    todayExpenseTotal: data?.todayExpenseTotal,
+  };
+
   return (
     <div className="p-4 lg:p-6 max-w-3xl mx-auto space-y-5">
       <PageHeader
@@ -260,13 +281,13 @@ export function DashboardPage() {
         subtitle={
           simpleMode && isToday
             ? user?.name
-              ? `${phaseGreeting(user.name, dayPhase)} — speak or tap tasks below`
-              : 'Speak or tap your tasks below'
+              ? `${phaseGreeting(user.name, dayPhase)} — ${APP_TAGLINE.toLowerCase()}`
+              : APP_TAGLINE
             : isToday && user?.name
               ? phaseGreeting(user.name, dayPhase)
               : 'Your day at a glance'
         }
-        hint={simpleMode && isToday ? 'AI fixes voice mistakes · morning tasks auto-fill' : isToday ? phaseHint(dayPhase) : 'Pick a date above to review another day'}
+        hint={simpleMode && isToday ? 'AI life lesson · auto tasks · voice add' : isToday ? phaseHint(dayPhase) : 'Pick a date above to review another day'}
         action={
           todayTotal > 0 ? (
             <div className="text-right shrink-0">
@@ -294,6 +315,10 @@ export function DashboardPage() {
           onVoice={openVoice}
           onMorningSetup={() => void handleMorningSetup()}
         />
+      )}
+
+      {isToday && (
+        <AiCoachCard snapshot={lifeSnapshot} userId={user?.id} compact={simpleMode} />
       )}
 
       {(!simpleMode || showMore) && (

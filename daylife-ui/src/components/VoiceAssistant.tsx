@@ -4,6 +4,7 @@ import { Mic, Loader2, Sparkles, X, Keyboard, Check } from 'lucide-react';
 import { useAuth } from '../features/auth/AuthContext';
 import { toast } from './Toaster';
 import { cn } from '../lib/utils';
+import { AI_COACH_NAME } from '../lib/brand';
 import {
   describeVoiceAction,
   getVoiceHints,
@@ -346,7 +347,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       <div className="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-xl z-10 mx-0 sm:mx-4 overflow-hidden max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 bg-white z-10">
           <h2 className="font-semibold flex items-center gap-2">
-            <Sparkles size={18} className="text-brand-600" /> Quick add
+            <Sparkles size={18} className="text-brand-600" /> {AI_COACH_NAME} AI
             {aiEnabled && (
               <span className="text-[10px] font-semibold uppercase tracking-wide bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">
                 AI
@@ -552,7 +553,7 @@ export function VoiceMicButton({ onClick, className, size = 'md' }: VoiceMicButt
     <button
       type="button"
       onClick={onClick}
-      title="Quick add — Hindi / English"
+      title="Rozka AI — speak or type"
       className={cn(
         dims,
         'rounded-full bg-violet-600 text-white flex items-center justify-center shadow-md active:scale-95 touch-manipulation',
