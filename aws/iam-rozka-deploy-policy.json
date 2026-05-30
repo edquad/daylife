@@ -16,8 +16,24 @@
         "iam:PutRolePolicy",
         "iam:DeleteRolePolicy",
         "iam:PassRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:TagPolicy",
+        "iam:UntagPolicy",
+        "iam:CreatePolicyVersion",
+        "iam:GetPolicy",
+        "iam:ListPolicyVersions",
         "s3:*",
-        "logs:*"
+        "logs:*",
+        "sns:*",
+        "cloudwatch:*",
+        "budgets:*",
+        "events:*",
+        "secretsmanager:CreateSecret",
+        "secretsmanager:PutSecretValue",
+        "secretsmanager:UpdateSecret",
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:GetSecretValue"
       ],
       "Resource": "*"
     }

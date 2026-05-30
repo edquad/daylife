@@ -33,6 +33,7 @@ import {
 } from '../../lib/homeScreenPush';
 import { getActiveAccountId } from '../../lib/accounts';
 import { getSimpleMode, setSimpleMode } from '../../lib/simpleMode';
+import { GmailConnectCard } from '../../components/GmailConnectCard';
 
 export function SettingsPage() {
   const { user, logout, refreshUser } = useAuth();
@@ -123,6 +124,18 @@ export function SettingsPage() {
     }
   }, [user]);
 
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const gmail = params.get('gmail');
+    if (!gmail) return;
+    if (gmail === 'connected') toast.success('Gmail connected — drafts only, human messages only');
+    if (gmail === 'error') toast.error(`Gmail setup failed: ${params.get('reason') || 'unknown'}`);
+    params.delete('gmail');
+    params.delete('reason');
+    const next = `${window.location.pathname}${params.toString() ? `?${params}` : ''}`;
+    window.history.replaceState({}, '', next);
+  }, []);
+
   const handleExport = () => {
     const blob = new Blob([exportData()], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -174,6 +187,8 @@ export function SettingsPage() {
           <LogOut size={16} /> Log out
         </button>
       </section>
+
+      <GmailConnectCard />
 
       <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-3">
         <h2 className="font-semibold flex items-center gap-2">

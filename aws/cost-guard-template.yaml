@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Rozka cost guard — scheduled billing check auto-pauses voice and push at cap
+
+Parameters:
+  MonthlyCapUsd:
+    Type: String
+    Default: '10'
+  PauseRegion:
+    Type: String
+    Default: ap-south-1
+  PauseFunctions:
+    Type: String
+    Default: rozka-voice-parse,rozka-push-relay
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 128
+    Runtime: nodejs20.x
+
+Resources:
+  CostGuardFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: rozka-cost-guard
+      CodeUri: cost-guard/
+      Handler: index.handler
+      Description: Checks AWS bill every 6h and pauses Rozka Lambdas at monthly cap
+      Environment:
+        Variables:
+          PAUSE_REGION: !Ref PauseRegion
+          BILLING_REGION: us-east-1
+          PAUSE_FUNCTIONS: !Ref PauseFunctions
+          MONTHLY_CAP_USD: !Ref MonthlyCapUsd
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:PutFunctionConcurrency
+                - lambda:DeleteFunctionConcurrency
+                - lambda:GetFunctionConcurrency
+              Resource:
+                - !Sub 'arn:aws:lambda:${PauseRegion}:${AWS::AccountId}:function:rozka-voice-parse'
+                - !Sub 'arn:aws:lambda:${PauseRegion}:${AWS::AccountId}:function:rozka-push-relay'
+            - Effect: Allow
+              Action: cloudwatch:GetMetricStatistics
+              Resource: '*'
+      Events:
+        BillingCheck:
+          Type: Schedule
+          Properties:
+            Schedule: rate(6 hours)
+            Description: Poll estimated AWS charges and pause if over cap
+            Enabled: true
+
+Outputs:
+  CostGuardFunctionArn:
+    Value: !GetAtt CostGuardFunction.Arn
+  ManualCheck:
+    Description: Run a billing check now
+    Value: !Sub 'aws lambda invoke --function-name rozka-cost-guard --payload "{\"action\":\"check\"}" --cli-binary-format raw-in-base64-out out.json --region us-east-1 --profile anshul-rozka'

@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:*:*:*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["lambda:PutFunctionConcurrency", "lambda:DeleteFunctionConcurrency"],
+      "Resource": [
+        "arn:aws:lambda:ap-south-1:175616157827:function:rozka-voice-parse",
+        "arn:aws:lambda:ap-south-1:175616157827:function:rozka-push-relay"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": "sns:Publish",
+      "Resource": "SNS_TOPIC_ARN_PLACEHOLDER"
+    }
+  ]
+}

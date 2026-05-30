@@ -1,0 +1,11 @@
+{
+  "name": "rozka-gmail-drafts",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.750.0",
+    "@aws-sdk/client-s3": "^3.750.0",
+    "@aws-sdk/client-secrets-manager": "^3.750.0",
+    "googleapis": "^144.0.0"
+  }
+}

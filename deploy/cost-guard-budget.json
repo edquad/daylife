@@ -1,0 +1,13 @@
+{
+  "BudgetName": "rozka-monthly-cap",
+  "BudgetLimit": { "Amount": "10", "Unit": "USD" },
+  "BudgetType": "COST",
+  "TimeUnit": "MONTHLY",
+  "CostTypes": {
+    "IncludeCredit": false,
+    "IncludeDiscount": true,
+    "IncludeRefund": false,
+    "IncludeTax": true,
+    "UseBlended": false
+  }
+}

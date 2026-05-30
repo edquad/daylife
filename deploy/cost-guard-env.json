@@ -1,0 +1,8 @@
+{
+  "Variables": {
+    "PAUSE_REGION": "ap-south-1",
+    "BILLING_REGION": "us-east-1",
+    "PAUSE_FUNCTIONS": "rozka-voice-parse,rozka-push-relay",
+    "MONTHLY_CAP_USD": "10"
+  }
+}

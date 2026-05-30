@@ -39,6 +39,7 @@ jobs:
           VITE_VAPID_PUBLIC_KEY: BET8I04xeWID8z61Rv6Mj7n-j7jF1rZgYmSOlLFHaZx9Yw29eiahe7IfAudP6OhbW8DuGhks21Z8j9BcvHHYF5g
           VITE_PUSH_RELAY_URL: ${{ vars.DAYLIFE_PUSH_RELAY_URL }}
           VITE_VOICE_PARSE_URL: ${{ vars.DAYLIFE_VOICE_PARSE_URL }}
+          VITE_GMAIL_API_URL: ${{ vars.DAYLIFE_GMAIL_API_URL }}
 
       - name: SPA fallback for GitHub Pages routes
         run: cp daylife-ui/dist/index.html daylife-ui/dist/404.html
