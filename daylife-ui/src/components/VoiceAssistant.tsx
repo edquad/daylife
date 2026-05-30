@@ -49,7 +49,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
   const [micAvailable] = useState(isVoiceMicAvailable());
   const [onIOS] = useState(isIOSDevice());
   const [aiEnabled] = useState(voiceAiSupported());
-  const textInputRef = useRef<HTMLInputElement>(null);
+  const textInputRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const transcriptRef = useRef('');
   const holdingRef = useRef(false);
@@ -136,8 +136,8 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       setState('preview');
       setStatusLine(
         lang === 'hi-IN'
-          ? `${actions.length} चीज़ मिली — Add दबाएं`
-          : `Found ${actions.length} item(s) — tap Add`,
+          ? `${actions.length} चीज़ — सही है? गलत हो तो नीचे edit करें`
+          : `${actions.length} item(s) — correct? edit below if wrong`,
       );
       if (autoAdd) {
         void runActions(actions);
@@ -152,7 +152,8 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       const text = transcriptRef.current.trim();
       holdingRef.current = false;
       if (text) {
-        void submitText(text, true);
+        setTyped(text);
+        void submitText(text, false);
       } else {
         setState('idle');
         setStatusLine(lang === 'hi-IN' ? 'कुछ सुनाई नहीं दिया — फिर hold करें' : 'No speech heard — hold mic again');
@@ -191,7 +192,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
     }
 
     const recognition = new SpeechCtor();
-    recognition.lang = lang;
+    recognition.lang = lang === 'hi-IN' ? 'hi-IN' : 'en-IN';
     recognition.continuous = true;
     recognition.interimResults = true;
     recognitionRef.current = recognition;
@@ -284,12 +285,18 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       if (heard) setTranscript(heard);
       if (actions.length === 0) {
         setStatusLine(
-          lang === 'hi-IN' ? 'समझ नहीं आया — example देखें' : 'Could not understand — see examples',
+          lang === 'hi-IN' ? 'समझ नहीं आया — नीचे edit करके Parse' : 'Could not understand — edit text below and Parse',
         );
         setState('idle');
         return;
       }
-      void runActions(actions);
+      setPending(actions);
+      setState('preview');
+      setStatusLine(
+        lang === 'hi-IN'
+          ? `${actions.length} चीज़ — सही है? Add दबाएं`
+          : `${actions.length} item(s) — correct? tap Add`,
+      );
     } catch (err) {
       recordingRef.current = false;
       setState('idle');
@@ -448,6 +455,12 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
 
           {pending.length > 0 && state === 'preview' && (
             <div className="mb-4 p-3 rounded-xl bg-green-50 border border-green-200">
+              {transcript && (
+                <p className="text-xs text-green-900 mb-2 pb-2 border-b border-green-200">
+                  <span className="font-semibold">{lang === 'hi-IN' ? 'सुना:' : 'Heard:'}</span>{' '}
+                  &ldquo;{transcript}&rdquo;
+                </p>
+              )}
               <p className="text-xs font-semibold text-green-800 mb-2">
                 {lang === 'hi-IN' ? 'ये add होगा:' : 'Will add:'}
               </p>
@@ -472,19 +485,20 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
             <p className="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
               <Keyboard size={14} /> {lang === 'hi-IN' ? 'Type करें' : 'Or type'}
             </p>
-            <div className="flex gap-2">
-              <input
+            <div className="flex gap-2 items-end">
+              <textarea
                 ref={textInputRef}
                 value={typed}
                 onChange={(e) => setTyped(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+                  if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     void submitText(typed, false);
                   }
                 }}
                 placeholder={hints[0]}
-                className="flex-1 px-3 py-3 border rounded-xl text-base outline-none focus:ring-2 focus:ring-brand-500"
+                rows={2}
+                className="flex-1 px-3 py-3 border rounded-xl text-base outline-none focus:ring-2 focus:ring-brand-500 resize-none"
                 autoComplete="off"
                 enterKeyHint="done"
               />

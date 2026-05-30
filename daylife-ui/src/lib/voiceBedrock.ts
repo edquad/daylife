@@ -9,6 +9,12 @@ export function voiceAiSupported(): boolean {
   return Boolean(VOICE_PARSE_URL);
 }
 
+function mergeActions(primary: VoiceAction[], fallback: VoiceAction[]): VoiceAction[] {
+  if (primary.length === 0) return fallback;
+  if (fallback.length > primary.length) return fallback;
+  return primary;
+}
+
 export async function parseVoiceTranscriptSmart(
   raw: string,
   lang: VoiceLang,
@@ -17,7 +23,9 @@ export async function parseVoiceTranscriptSmart(
   if (!text) return { actions: [], source: 'local' };
 
   const selectedDate = useDateStore.getState().selectedDate || todayISO();
-  const context = { selectedDate, today: todayISO(), lang };
+  const context = { selectedDate, today: todayISO(), lang, bilingual: true };
+
+  const localActions = parseVoiceTranscript(text);
 
   if (VOICE_PARSE_URL) {
     try {
@@ -26,18 +34,16 @@ export async function parseVoiceTranscriptSmart(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transcript: text, lang, context }),
       });
-      if (res.ok) {
-        const data = (await res.json()) as { ok?: boolean; actions?: VoiceAction[] };
-        if (data.ok && Array.isArray(data.actions) && data.actions.length > 0) {
-          return { actions: data.actions, source: 'bedrock' };
-        }
+      const data = (await res.json()) as { ok?: boolean; actions?: VoiceAction[] };
+      if (res.ok && data.ok && Array.isArray(data.actions) && data.actions.length > 0) {
+        return { actions: mergeActions(data.actions, localActions), source: 'bedrock' };
       }
     } catch {
       /* fall back to local parser */
     }
   }
 
-  return { actions: parseVoiceTranscript(text), source: 'local' };
+  return { actions: localActions, source: 'local' };
 }
 
 export async function transcribeAndParseVoice(
@@ -45,7 +51,7 @@ export async function transcribeAndParseVoice(
   lang: VoiceLang,
 ): Promise<{ transcript: string; actions: VoiceAction[]; source: 'bedrock' | 'local' }> {
   const selectedDate = useDateStore.getState().selectedDate || todayISO();
-  const context = { selectedDate, today: todayISO(), lang };
+  const context = { selectedDate, today: todayISO(), lang, bilingual: true };
 
   if (!VOICE_PARSE_URL) {
     return { transcript: '', actions: [], source: 'local' };
@@ -79,9 +85,9 @@ export async function transcribeAndParseVoice(
   }
 
   const transcript = (data.transcript || '').trim();
-  const actions = Array.isArray(data.actions) ? data.actions : [];
-  if (actions.length === 0 && transcript) {
-    return { transcript, actions: parseVoiceTranscript(transcript), source: 'local' };
-  }
-  return { transcript, actions, source: 'bedrock' };
+  const aiActions = Array.isArray(data.actions) ? data.actions : [];
+  const localActions = transcript ? parseVoiceTranscript(transcript) : [];
+  const actions = mergeActions(aiActions, localActions);
+  const source = aiActions.length > 0 ? 'bedrock' : 'local';
+  return { transcript, actions, source };
 }

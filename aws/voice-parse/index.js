@@ -16,24 +16,42 @@ const MODEL_IDS = (process.env.BEDROCK_MODEL_IDS || 'apac.amazon.nova-lite-v1:0,
   .map((s) => s.trim())
   .filter(Boolean);
 
-const SYSTEM_PROMPT = `You parse spoken commands for Rozka (Hindi, English, or Hinglish) into structured actions.
+const SYSTEM_PROMPT = `You parse messy spoken commands for Rozka — a personal task app. Input is from speech-to-text: expect typos, missing words, Hindi, English, or Hinglish mixed.
 
 Return ONLY valid JSON (no markdown):
 {"actions":[...]}
 
-Allowed action types:
+Action types:
 - task: {"type":"task","title":"...","area":"PERSONAL"|"WORK"|"HOME","remind":true|false,"dueDate":"YYYY-MM-DD"}
 - reminder: {"type":"reminder","title":"...","dueDate":"YYYY-MM-DD","repeat":"NONE"|"MONTHLY"|"YEARLY"}
 - expense: {"type":"expense","amount":number,"description":"...","categoryId":"cat-groceries"|"cat-dining"|"cat-transport"|"cat-utilities"|"cat-health"|"cat-entertainment"|"cat-shopping"|"cat-other"}
 - shopping: {"type":"shopping","name":"..."}
 - note: {"type":"note","content":"..."}
 
-Rules:
-- Split multiple tasks when user says "2 tasks", "pehla... doosra", "first... second", numbered lists, or "aur/and".
-- When user says remind, yaad dilana, yaad rakhna, notification — set remind:true on tasks OR add matching reminder actions.
-- Default task/reminder dueDate to context.selectedDate unless user gives another date (kal=tomorrow, parso=day after, aaj=today).
-- Normalize titles to short clear phrases (e.g. "order milk" not "please order milk task").
-- Ignore filler words. If unsure, prefer task actions over nothing.`;
+Understanding rules (IMPORTANT):
+- Fix speech errors: doodh/dudh/milk → "Order milk"; sabzi/sabjee/veggie/vegetable → "Order vegetables"; anda → eggs; bill/bijli → pay bill / electricity as context suggests.
+- "2 task" / "do task" / "dono" / "pehla doosra" / numbered list → split into separate task actions.
+- remind / yaad / yaad dilana / reminder / notification / yaad rakhna → remind:true on tasks OR add reminder actions.
+- kal → tomorrow, parso → day after tomorrow, aaj → today (use context.today and context.selectedDate).
+- Default dueDate = context.selectedDate unless user gives another date.
+- Short clear English or Hindi titles (e.g. "Doodh mangwana", "Order milk", "Pay electricity bill").
+- If user clearly wants shopping (kharidna, lana, buy, shopping list) use shopping type.
+- If amount + money words (rs, rupaye, kharch, spent) use expense.
+- When intent is unclear but sounds like a todo → create a task rather than returning empty.
+- Ignore filler: please, kripya, ok, um, matlab, basically, rozka, add karo, bana do.
+
+Examples:
+Input: "please create 2 task order milk and order veggie also remind me"
+→ two tasks with remind:true
+
+Input: "doodh aur sabzi ka order karo yaad dilana"
+→ tasks: Order milk + Order sabzi, both remind:true
+
+Input: "50 rupaye chai par kharch"
+→ expense 50, cat-dining, description chai
+
+Input: "shopping anda bread"
+→ shopping eggs, shopping bread OR one shopping "anda, bread" — prefer separate shopping items if two things listed.`;
 
 function response(statusCode, body) {
   return { statusCode, headers: corsHeaders, body: JSON.stringify(body) };
@@ -132,7 +150,7 @@ async function invokeModel(client, modelId, transcript, lang, context) {
     modelId,
     system: [{ text: SYSTEM_PROMPT }],
     messages: [{ role: 'user', content: [{ text: userPayload }] }],
-    inferenceConfig: { maxTokens: 1200, temperature: 0.1 },
+    inferenceConfig: { maxTokens: 1800, temperature: 0.15 },
   });
   const result = await client.send(command);
   const text = result.output?.message?.content?.map((c) => c.text).filter(Boolean).join('') || '';

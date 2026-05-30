@@ -236,6 +236,12 @@ export function parseVoiceTranscript(raw: string): VoiceAction[] {
     if (action) actions.push(action);
   }
 
+  if (/yaad|remind|notification/i.test(text)) {
+    for (const a of actions) {
+      if (a.type === 'task') a.remind = true;
+    }
+  }
+
   return actions;
 }
 
