@@ -1,7 +1,8 @@
-import type { Task } from './api';
+import type { ReminderRepeat, Task } from './api';
 
 export type VoiceAction =
-  | { type: 'task'; title: string; area: Task['area'] }
+  | { type: 'task'; title: string; area: Task['area']; remind?: boolean; dueDate?: string }
+  | { type: 'reminder'; title: string; dueDate: string; repeat?: ReminderRepeat; notes?: string }
   | { type: 'expense'; amount: number; description: string; categoryId: string }
   | { type: 'shopping'; name: string }
   | { type: 'note'; content: string };
@@ -36,8 +37,14 @@ function normalizeClause(text: string): string {
 }
 
 function splitClauses(text: string): string[] {
-  return text
-    .split(/\s+and\s+|\s+aur\s+|\s+also\s+|\s+फिर\s+|\s+then\s+|,\s*|\s+और\s+/i)
+  const numbered = text
+    .replace(/\b(?:please\s+)?create\s+\d+\s+tasks?\s*/i, '')
+    .replace(/\b(?:pehla|pehle|first|1st|1\.?|ek)\s*(?:task|is|:)?\s*/gi, '||')
+    .replace(/\b(?:doosra|dusra|second|2nd|2\.?|do)\s*(?:task|is|:)?\s*/gi, '||')
+    .replace(/\b(?:teesra|third|3rd|3\.?)\s*(?:task|is|:)?\s*/gi, '||');
+
+  return numbered
+    .split(/\|\||\s+and\s+|\s+aur\s+|\s+also\s+|\s+फिर\s+|\s+then\s+|,\s*|\s+और\s+/i)
     .map((s) => normalizeClause(s))
     .filter((s) => s.length >= 2);
 }
@@ -235,7 +242,9 @@ export function parseVoiceTranscript(raw: string): VoiceAction[] {
 export function describeVoiceAction(action: VoiceAction): string {
   switch (action.type) {
     case 'task':
-      return `Task: ${action.title}`;
+      return action.remind ? `Task + reminder: ${action.title}` : `Task: ${action.title}`;
+    case 'reminder':
+      return `Reminder: ${action.title}`;
     case 'expense':
       return `Expense: ₹${action.amount.toFixed(0)} — ${action.description}`;
     case 'shopping':
@@ -248,16 +257,16 @@ export function describeVoiceAction(action: VoiceAction): string {
 }
 
 export const VOICE_HINTS_HI = [
-  'task doodh lana',
+  '2 task: doodh order karo aur sabzi, yaad bhi dilana',
+  'task bill pay karo remind karna',
   'kharch 50 chai par',
-  '100 rupaye lunch',
   'shopping anda bread',
 ];
 
 export const VOICE_HINTS_EN = [
-  'task buy milk',
+  'create 2 tasks order milk and order veggies, remind me',
+  'task pay bills remind me tomorrow',
   'spent 15 on coffee',
-  '100 rs lunch',
   'shopping eggs',
 ];
 

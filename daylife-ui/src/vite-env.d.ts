@@ -3,6 +3,9 @@
 
 interface ImportMetaEnv {
   readonly VITE_GITHUB_SYNC_TOKEN?: string;
+  readonly VITE_VAPID_PUBLIC_KEY?: string;
+  readonly VITE_PUSH_RELAY_URL?: string;
+  readonly VITE_VOICE_PARSE_URL?: string;
 }
 
 interface ImportMeta {

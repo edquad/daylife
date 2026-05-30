@@ -44,13 +44,30 @@ export async function executeVoiceActions(
   for (const action of actions) {
     try {
       switch (action.type) {
-        case 'task':
+        case 'task': {
+          const dueDate = action.dueDate || selectedDate;
           await api.post('/tasks', {
             title: action.title,
             area: action.area,
-            dueDate: selectedDate,
+            dueDate,
             assigneeId: userId,
             priority: 'MEDIUM',
+          });
+          if (action.remind) {
+            await api.post('/reminders', {
+              title: action.title,
+              dueDate,
+              repeat: 'NONE',
+            });
+          }
+          break;
+        }
+        case 'reminder':
+          await api.post('/reminders', {
+            title: action.title,
+            dueDate: action.dueDate,
+            repeat: action.repeat || 'NONE',
+            notes: action.notes,
           });
           break;
         case 'expense':
@@ -91,5 +108,7 @@ export function voiceQueryKeysToInvalidate(): string[][] {
     ['shopping'],
     ['shared-shopping'],
     ['shared-summary'],
+    ['reminders'],
+    ['reminders-upcoming'],
   ];
 }

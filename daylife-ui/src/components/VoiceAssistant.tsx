@@ -5,7 +5,6 @@ import { useAuth } from '../features/auth/AuthContext';
 import { toast } from './Toaster';
 import { cn } from '../lib/utils';
 import {
-  parseVoiceTranscript,
   describeVoiceAction,
   getVoiceHints,
   getVoiceLang,
@@ -13,6 +12,7 @@ import {
   type VoiceAction,
   type VoiceLang,
 } from '../lib/voiceCommands';
+import { parseVoiceTranscriptSmart, voiceAiSupported } from '../lib/voiceBedrock';
 import { executeVoiceActions, voiceQueryKeysToInvalidate } from '../lib/executeVoiceCommands';
 import {
   collectTranscript,
@@ -41,6 +41,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
   const [statusLine, setStatusLine] = useState('');
   const [voiceSupported] = useState(isVoiceInputSupported());
   const [onIOS] = useState(isIOSDevice());
+  const [aiEnabled] = useState(voiceAiSupported());
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const transcriptRef = useRef('');
   const holdingRef = useRef(false);
@@ -97,24 +98,24 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
     [user?.id, queryClient, onClose, lang],
   );
 
-  const buildPreview = useCallback(
-    (text: string): VoiceAction[] => {
-      const trimmed = text.trim();
-      if (!trimmed) return [];
-      setTranscript(trimmed);
-      return parseVoiceTranscript(trimmed);
-    },
-    [],
-  );
+  const parseTranscript = useCallback(async (text: string): Promise<VoiceAction[]> => {
+    const trimmed = text.trim();
+    if (!trimmed) return [];
+    setTranscript(trimmed);
+    setStatusLine(lang === 'hi-IN' ? 'AI समझ रहा है…' : 'AI understanding…');
+    const { actions } = await parseVoiceTranscriptSmart(trimmed, lang);
+    return actions;
+  }, [lang]);
 
   const submitText = useCallback(
-    (text: string, autoAdd = false) => {
-      const actions = buildPreview(text);
+    async (text: string, autoAdd = false) => {
+      setState('processing');
+      const actions = await parseTranscript(text);
       if (actions.length === 0) {
         setStatusLine(
           lang === 'hi-IN'
-            ? 'बोलें: task doodh lana या kharch 50 chai par'
-            : 'Try: task buy milk or kharch 50 chai par',
+            ? 'बोलें: 2 task doodh aur sabzi, yaad dilana'
+            : 'Try: create 2 tasks order milk and veggies, remind me',
         );
         setState('idle');
         return;
@@ -130,7 +131,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
         void runActions(actions);
       }
     },
-    [buildPreview, lang, runActions],
+    [parseTranscript, lang, runActions],
   );
 
   const finishListening = useCallback(() => {
@@ -139,7 +140,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       const text = transcriptRef.current.trim();
       holdingRef.current = false;
       if (text) {
-        submitText(text, true);
+        void submitText(text, true);
       } else {
         setState('idle');
         setStatusLine(lang === 'hi-IN' ? 'कुछ सुनाई नहीं दिया — फिर hold करें' : 'No speech heard — hold mic again');
@@ -240,6 +241,11 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
         <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 bg-white z-10">
           <h2 className="font-semibold flex items-center gap-2">
             <Sparkles size={18} className="text-brand-600" /> Quick add
+            {aiEnabled && (
+              <span className="text-[10px] font-semibold uppercase tracking-wide bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">
+                AI
+              </span>
+            )}
           </h2>
           <button type="button" onClick={onClose} className="p-2 text-gray-400 touch-manipulation">
             <X size={20} />
@@ -264,6 +270,14 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
               </button>
             ))}
           </div>
+
+          {aiEnabled && (
+            <p className="text-xs text-violet-700 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
+              {lang === 'hi-IN'
+                ? 'Hindi + English — बोलें “2 task doodh aur sabzi, yaad dilana”'
+                : 'Hindi + English — say “create 2 tasks order milk and veggies, remind me”'}
+            </p>
+          )}
 
           {onIOS && (
             <div className="mb-4 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
@@ -345,7 +359,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    submitText(typed, false);
+                    void submitText(typed, false);
                   }
                 }}
                 placeholder={hints[0]}
@@ -355,7 +369,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
               />
               <button
                 type="button"
-                onClick={() => submitText(typed, false)}
+                onClick={() => void submitText(typed, false)}
                 disabled={!typed.trim() || state === 'processing'}
                 className="px-4 py-3 bg-brand-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 touch-manipulation shrink-0"
               >
@@ -375,7 +389,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                   type="button"
                   onClick={() => {
                     setTyped(hint);
-                    submitText(hint, false);
+                    void submitText(hint, false);
                   }}
                   className="text-xs text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-full px-3 py-1.5 touch-manipulation"
                 >
