@@ -110,5 +110,6 @@ export function voiceQueryKeysToInvalidate(): string[][] {
     ['shared-summary'],
     ['reminders'],
     ['reminders-upcoming'],
+    ['calendar'],
   ];
 }

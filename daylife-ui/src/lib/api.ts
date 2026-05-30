@@ -28,6 +28,7 @@ import type { ItemVisibility } from './privacy';
 import { defaultVisibility, isVisibleToViewer } from './privacy';
 import { hashPin, verifyPin, validatePinFormat, generateRecoveryCode, hashRecoveryCode, verifyRecoveryCode, validateRecoveryCodeFormat } from './pin';
 import { normalizeUsername, validateUsername, resolveAccountId, getActiveAccountId, listRegisteredUsernames, searchRegisteredUsernames } from './accounts';
+import { formatMoney } from './format';
 import {
   type Connection,
   type ShareFeature,
@@ -300,6 +301,25 @@ export interface UpcomingReminder {
   repeat: ReminderRepeat;
   notes?: string;
   daysUntil: number;
+}
+
+export type CalendarEventKind = 'task' | 'reminder' | 'expense' | 'note';
+
+export interface CalendarEvent {
+  id: string;
+  kind: CalendarEventKind;
+  date: string;
+  title: string;
+  subtitle?: string;
+  status?: Task['status'];
+  done?: boolean;
+}
+
+export interface CalendarEventsResponse {
+  from: string;
+  to: string;
+  events: CalendarEvent[];
+  countsByDate: Record<string, number>;
 }
 
 export interface HouseholdInfo {
@@ -846,6 +866,111 @@ function upcomingReminders(data: ReturnType<typeof loadData>, fromDate: string, 
     });
   }
   return results.sort((a, b) => a.nextDate.localeCompare(b.nextDate));
+}
+
+function reminderOccursOnDay(reminder: Reminder, day: string): boolean {
+  const due = reminder.dueDate.slice(0, 10);
+  if (reminder.repeat === 'NONE') return due === day;
+  if (reminder.repeat === 'YEARLY') return day.slice(5) === due.slice(5);
+  const dayNum = parseInt(due.slice(8, 10), 10);
+  const y = parseInt(day.slice(0, 4), 10);
+  const m = parseInt(day.slice(5, 7), 10);
+  const lastDay = new Date(y, m, 0).getDate();
+  return parseInt(day.slice(8, 10), 10) === Math.min(dayNum, lastDay);
+}
+
+function calendarEvents(
+  data: ReturnType<typeof loadData>,
+  from: string,
+  to: string,
+  viewerId: string | null,
+): CalendarEventsResponse {
+  const events: CalendarEvent[] = [];
+  const countsByDate: Record<string, number> = {};
+
+  const bump = (date: string) => {
+    countsByDate[date] = (countsByDate[date] ?? 0) + 1;
+  };
+
+  const visibleTasks = filterVisible(
+    data.tasks,
+    viewerId,
+    taskOwnerId,
+    (t) => t.visibility,
+  );
+  for (const t of visibleTasks) {
+    const d = t.dueDate?.slice(0, 10);
+    if (!d || d < from || d > to) continue;
+    events.push({
+      id: `task-${t.id}`,
+      kind: 'task',
+      date: d,
+      title: t.title,
+      subtitle: t.area,
+      status: t.status,
+      done: t.status === 'DONE',
+    });
+    bump(d);
+  }
+
+  const visibleExpenses = filterVisible(
+    data.expenses,
+    viewerId,
+    expenseOwnerId,
+    (e) => e.visibility,
+  );
+  for (const e of visibleExpenses) {
+    const d = e.expenseDate.slice(0, 10);
+    if (d < from || d > to) continue;
+    const enriched = enrichExpense(data, e);
+    events.push({
+      id: `exp-${e.id}`,
+      kind: 'expense',
+      date: d,
+      title: enriched.description || enriched.category.name,
+      subtitle: formatMoney(e.amount),
+    });
+    bump(d);
+  }
+
+  const visibleNotes = filterVisible(
+    data.notes as Array<{ authorId?: string; visibility?: ItemVisibility; ownerId?: string; noteDate: string; id: string; content: string; area: DailyNote['area'] }>,
+    viewerId,
+    noteOwnerId,
+    (n) => n.visibility,
+  );
+  for (const n of visibleNotes) {
+    const d = n.noteDate.slice(0, 10);
+    if (d < from || d > to) continue;
+    events.push({
+      id: `note-${n.id}`,
+      kind: 'note',
+      date: d,
+      title: n.content.length > 48 ? `${n.content.slice(0, 48)}…` : n.content,
+      subtitle: n.area,
+    });
+    bump(d);
+  }
+
+  for (const r of data.reminders) {
+    let d = from;
+    while (d <= to) {
+      if (reminderOccursOnDay(r, d)) {
+        events.push({
+          id: `rem-${r.id}-${d}`,
+          kind: 'reminder',
+          date: d,
+          title: r.title,
+          subtitle: r.repeat === 'NONE' ? 'Once' : r.repeat === 'MONTHLY' ? 'Monthly' : 'Yearly',
+        });
+        bump(d);
+      }
+      d = addDaysISO(d, 1);
+    }
+  }
+
+  events.sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
+  return { from, to, events, countsByDate };
 }
 
 function routinesForDay(data: ReturnType<typeof loadData>, date: string): RoutineToday[] {
@@ -1715,6 +1840,12 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
   if (route === '/dashboard/summary' && method === 'GET') {
     const date = q.get('date') || undefined;
     return dashboardSummary(data, date, sessionId) as T;
+  }
+
+  if (route === '/calendar/events' && method === 'GET') {
+    const from = q.get('from') || todayISO();
+    const to = q.get('to') || from;
+    return calendarEvents(data, from.slice(0, 10), to.slice(0, 10), sessionId) as T;
   }
 
   // Shopping

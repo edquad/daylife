@@ -11,6 +11,7 @@ import { TasksPage } from './features/tasks/TasksPage';
 import { ExpensesPage } from './features/expenses/ExpensesPage';
 import { ExpenseReportsPage } from './features/expenses/ExpenseReportsPage';
 import { SplitBalancesPage } from './features/expenses/SplitBalancesPage';
+import { AiCalendarPage } from './features/calendar/AiCalendarPage';
 import { DailyLifePage } from './features/daily/DailyLifePage';
 import { VisionBoardPage } from './features/vision/VisionBoardPage';
 import { SettingsPage } from './features/settings/SettingsPage';
@@ -70,6 +71,7 @@ export default function App() {
               <Route path="splits" element={<ErrorBoundary><SplitBalancesPage /></ErrorBoundary>} />
               <Route path="reports" element={<ErrorBoundary><ExpenseReportsPage /></ErrorBoundary>} />
               <Route path="daily" element={<ErrorBoundary><DailyLifePage /></ErrorBoundary>} />
+              <Route path="calendar" element={<ErrorBoundary><AiCalendarPage /></ErrorBoundary>} />
               <Route path="vision" element={<ErrorBoundary><VisionBoardPage /></ErrorBoundary>} />
               <Route path="work" element={<AreaRedirect area="WORK" />} />
               <Route path="home" element={<AreaRedirect area="HOME" />} />

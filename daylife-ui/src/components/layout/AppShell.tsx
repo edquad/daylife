@@ -13,7 +13,7 @@ import { APP_NAME, APP_TAGLINE } from '../../lib/brand';
 import {
   LayoutDashboard, CheckSquare, Receipt, Settings,
   Menu, X, Plus, LogOut, BarChart3, Cloud, CloudOff, Loader2, Star, HandCoins, Users, Mic, MessageCircle,
-  ShoppingCart, Sun, Bell,
+  ShoppingCart, Sun, Bell, Calendar,
 } from 'lucide-react';
 import { VoiceAssistantSheet, VoiceMicButton } from '../VoiceAssistant';
 import { RecoveryCodeModal } from '../RecoveryCodeModal';
@@ -24,6 +24,7 @@ const navGroups = [
     items: [
       { path: '/', label: 'Today', icon: LayoutDashboard, hint: 'AI coach · voice · tasks' },
       { path: '/daily', label: 'Daily lists', icon: Sun, hint: 'Shopping · routines · dates' },
+      { path: '/calendar', label: 'AI Calendar', icon: Calendar, hint: 'Month view · AI week plan' },
       { path: '/tasks', label: 'All tasks', icon: CheckSquare, hint: 'AI & manual tasks' },
     ],
   },

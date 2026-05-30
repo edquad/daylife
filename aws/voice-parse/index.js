@@ -99,6 +99,29 @@ Rules:
 - Use Hindi if lang is hi-IN, English if en-US
 - Kind, simple words — like a wise friend, not a lecture`;
 
+const CALENDAR_PLAN_PROMPT = `You are Rozka AI calendar planner for Indian users (Hindi or English).
+
+You receive existing calendar events for one week (tasks, reminders, expenses, notes).
+
+Return ONLY valid JSON (no markdown):
+{
+  "summary": "one friendly line about the week plan",
+  "actions": [...]
+}
+
+Each action uses the same types as voice commands:
+- task: {"type":"task","title":"...","area":"PERSONAL"|"WORK"|"HOME","dueDate":"YYYY-MM-DD","remind":true|false}
+- reminder: {"type":"reminder","title":"...","dueDate":"YYYY-MM-DD","repeat":"NONE"|"MONTHLY"|"YEARLY"}
+- shopping: {"type":"shopping","name":"..."}
+
+Rules:
+- Spread new work across context.from to context.to — do not pile everything on one day
+- Respect existing events — avoid duplicate titles on same day
+- Add 3–8 helpful actions for the week (tasks, reminders, shopping)
+- Include bills/birthdays from existing reminder events if any
+- Use Hindi titles if lang is hi-IN
+- dueDate must fall within the week range`;
+
 function response(statusCode, body) {
   return { statusCode, headers: corsHeaders, body: JSON.stringify(body) };
 }
@@ -258,6 +281,24 @@ async function invokeLifeCoach(client, modelId, lang, context) {
   return sanitizeLifeCoach(parsed, context.today || context.selectedDate);
 }
 
+async function invokeCalendarPlan(client, modelId, lang, context) {
+  const userPayload = JSON.stringify({ mode: 'calendar_plan', lang, context });
+  const command = new ConverseCommand({
+    modelId,
+    system: [{ text: CALENDAR_PLAN_PROMPT }],
+    messages: [{ role: 'user', content: [{ text: userPayload }] }],
+    inferenceConfig: { maxTokens: 1400, temperature: 0.25 },
+  });
+  const result = await client.send(command);
+  const text = result.output?.message?.content?.map((c) => c.text).filter(Boolean).join('') || '';
+  const parsed = extractJson(text);
+  const dueDefault = context.from || context.today;
+  return {
+    summary: String(parsed.summary || '').trim().slice(0, 400),
+    actions: sanitizeActions(parsed.actions, dueDefault),
+  };
+}
+
 async function transcribePcm(pcmBuffer, languageCode, sampleRateHertz) {
   const region = process.env.AWS_REGION || 'ap-south-1';
   const client = new TranscribeStreamingClient({ region });
@@ -348,6 +389,24 @@ async function parseLifeCoach(lang, context) {
   throw lastError || new Error('Life coach failed');
 }
 
+async function parseCalendarPlan(lang, context) {
+  const region = process.env.AWS_REGION || 'ap-south-1';
+  const client = new BedrockRuntimeClient({ region });
+  let lastError = null;
+
+  for (const modelId of MODEL_IDS) {
+    try {
+      const plan = await invokeCalendarPlan(client, modelId, lang, context);
+      if (!plan.summary && plan.actions.length === 0) throw new Error('Empty calendar plan');
+      return { plan, model: modelId };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Calendar plan failed');
+}
+
 exports.handler = async (event) => {
   const method = event.requestContext?.http?.method || event.httpMethod || 'GET';
 
@@ -374,7 +433,25 @@ exports.handler = async (event) => {
   const snapshot = payload.context?.snapshot && typeof payload.context.snapshot === 'object'
     ? payload.context.snapshot
     : {};
-  const context = { today, selectedDate, lang, routines, snapshot };
+  const from = typeof payload.context?.from === 'string' ? payload.context.from : today;
+  const to = typeof payload.context?.to === 'string' ? payload.context.to : from;
+  const events = Array.isArray(payload.context?.events) ? payload.context.events : [];
+  const context = { today, selectedDate, lang, routines, snapshot, from, to, events };
+
+  if (payload.mode === 'calendar_plan') {
+    try {
+      const { plan, model } = await parseCalendarPlan(lang, context);
+      return response(200, {
+        ok: true,
+        summary: plan.summary,
+        actions: plan.actions,
+        model,
+      });
+    } catch (err) {
+      const message = err?.message || 'Calendar plan failed';
+      return response(500, { ok: false, error: message });
+    }
+  }
 
   if (payload.mode === 'life_coach') {
     try {
