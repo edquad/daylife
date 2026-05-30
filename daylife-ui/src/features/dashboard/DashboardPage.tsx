@@ -46,6 +46,10 @@ import { HouseholdDayView } from '../../components/HouseholdDayView';
 import { useConnections } from '../../hooks/useConnections';
 import { useInviteActions, useInviteAcceptedNotifier } from '../../hooks/useInviteActions';
 import { getDayPhase, phaseGreeting, phaseHint } from '../../lib/dailyFlow';
+import { getSimpleMode } from '../../lib/simpleMode';
+import { runMorningSetup, shouldOfferMorningSetup } from '../../lib/morningSetup';
+import { SimpleTodayHero, SimpleMoreToggle } from '../../components/SimpleTodayHero';
+import { toast } from '../../components/Toaster';
 
 interface PersonSummary {
   userId: string;
@@ -173,10 +177,42 @@ export function DashboardPage() {
   const [showNote, setShowNote] = React.useState(false);
   const [noteShareScope, setNoteShareScope] = React.useState<ShareScope>({ kind: 'personal', visibility: 'SHARED' });
   const [taskModalOpen, setTaskModalOpen] = React.useState(false);
+  const [simpleMode] = React.useState(() => getSimpleMode());
+  const [showMore, setShowMore] = React.useState(false);
+  const [morningLoading, setMorningLoading] = React.useState(false);
+  const autoMorningRef = React.useRef(false);
   const [taskModalDefaults, setTaskModalDefaults] = React.useState<{
     defaultAssigneeId?: string;
     defaultShareScope?: ShareScope;
   }>({});
+
+  const isToday = selectedDate === todayISO();
+
+  const handleMorningSetup = React.useCallback(async (opts?: { silent?: boolean }) => {
+    if (!user?.id || morningLoading) return;
+    setMorningLoading(true);
+    try {
+      const result = await runMorningSetup(user.id, routines);
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      if (result.added > 0) {
+        toast.success(`Added ${result.added} morning task${result.added > 1 ? 's' : ''}`);
+      } else if (!opts?.silent) {
+        toast.success('Morning tasks already set for today');
+      }
+    } catch {
+      if (!opts?.silent) toast.error('Could not fill morning tasks — try again');
+    } finally {
+      setMorningLoading(false);
+    }
+  }, [user?.id, morningLoading, routines, queryClient]);
+
+  React.useEffect(() => {
+    if (!simpleMode || !isToday || !user?.id || isLoading || autoMorningRef.current) return;
+    if (!shouldOfferMorningSetup()) return;
+    autoMorningRef.current = true;
+    void handleMorningSetup({ silent: true });
+  }, [simpleMode, isToday, user?.id, isLoading, handleMorningSetup]);
 
   React.useEffect(() => {
     if (searchParams.get('focus') === 'tasks') {
@@ -196,7 +232,6 @@ export function DashboardPage() {
 
   const byPerson = data?.byPerson ?? [];
   const isMultiMember = members.length > 1;
-  const isToday = selectedDate === todayISO();
   const monthKey = selectedDate.slice(0, 7);
   const monthTasksPending = data?.monthTasksPending ?? [];
   const shoppingPending = shoppingData?.data.filter((i) => !i.checked) ?? [];
@@ -214,14 +249,24 @@ export function DashboardPage() {
   const showHouseholdView = isMultiMember || sharedColumns.length > 0;
   const showEveningReflection = isToday && (dayPhase === 'evening' || dayPhase === 'afternoon');
 
+  const openVoice = () => window.dispatchEvent(new Event('rozka-open-voice'));
+
   return (
     <div className="p-4 lg:p-6 max-w-3xl mx-auto space-y-5">
       <PageHeader
         theme="today"
         icon={LayoutDashboard}
         title={formatDayHeading(selectedDate)}
-        subtitle={isToday && user?.name ? phaseGreeting(user.name, dayPhase) : 'Your day at a glance'}
-        hint={isToday ? phaseHint(dayPhase) : 'Pick a date above to review another day'}
+        subtitle={
+          simpleMode && isToday
+            ? user?.name
+              ? `${phaseGreeting(user.name, dayPhase)} — speak or tap tasks below`
+              : 'Speak or tap your tasks below'
+            : isToday && user?.name
+              ? phaseGreeting(user.name, dayPhase)
+              : 'Your day at a glance'
+        }
+        hint={simpleMode && isToday ? 'AI fixes voice mistakes · morning tasks auto-fill' : isToday ? phaseHint(dayPhase) : 'Pick a date above to review another day'}
         action={
           todayTotal > 0 ? (
             <div className="text-right shrink-0">
@@ -239,6 +284,20 @@ export function DashboardPage() {
         acceptingId={actingInviteId}
       />
 
+      {simpleMode && isToday && (
+        <SimpleTodayHero
+          greeting={user?.name ? phaseGreeting(user.name, dayPhase) : 'Good morning'}
+          done={todayDoneAll}
+          total={todayTotal}
+          showMorningSetup={shouldOfferMorningSetup() || morningLoading}
+          morningLoading={morningLoading}
+          onVoice={openVoice}
+          onMorningSetup={() => void handleMorningSetup()}
+        />
+      )}
+
+      {(!simpleMode || showMore) && (
+      <>
       <section className="rounded-2xl overflow-hidden border border-violet-200 bg-gradient-to-br from-violet-600 via-fuchsia-600 to-amber-500 text-white shadow-md">
         <div className="p-4 sm:p-5">
           <div className="flex items-start justify-between gap-3">
@@ -308,6 +367,8 @@ export function DashboardPage() {
           toggling={toggleRoutineItem.isPending}
         />
       )}
+      </>
+      )}
 
       {(data?.overdueCount ?? 0) > 0 && isToday && (
         <Link
@@ -323,8 +384,14 @@ export function DashboardPage() {
       <DaySection
         accent="blue"
         icon={CheckSquare}
-        title={showHouseholdView ? "Today's plan" : "Today's to-dos"}
-        subtitle={showHouseholdView ? 'Everyone on one screen — tap to check off' : 'Quick check-off — add with + or voice'}
+        title={simpleMode ? "Today's tasks" : showHouseholdView ? "Today's plan" : "Today's to-dos"}
+        subtitle={
+          simpleMode
+            ? 'Tap to check off · mic button adds more'
+            : showHouseholdView
+              ? 'Everyone on one screen — tap to check off'
+              : 'Quick check-off — add with + or voice'
+        }
         action={
           <Link to="/tasks" className="text-xs font-medium text-blue-600 hover:underline shrink-0">
             All tasks →
@@ -409,6 +476,16 @@ export function DashboardPage() {
         )}
       </DaySection>
 
+      {simpleMode && (
+        <SimpleMoreToggle
+          open={showMore}
+          onToggle={() => setShowMore((v) => !v)}
+          label={showMore ? 'Show less' : 'Shopping, money, dreams & more'}
+        />
+      )}
+
+      {(!simpleMode || showMore) && (
+      <>
       <EveningReflectionSection selectedDate={selectedDate} visible={showEveningReflection} />
 
       <div className="grid sm:grid-cols-2 gap-4">
@@ -629,6 +706,8 @@ export function DashboardPage() {
           </div>
         )}
       </section>
+      </>
+      )}
       {taskModalOpen && (
         <TaskFormModal
           members={members}

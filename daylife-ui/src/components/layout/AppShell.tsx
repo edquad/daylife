@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../../features/auth/AuthContext';
 import { useGitHubSync } from '../../features/sync/GitHubSyncContext';
@@ -22,7 +22,7 @@ const navGroups = [
   {
     label: 'Your day',
     items: [
-      { path: '/', label: 'Today', icon: LayoutDashboard, hint: 'Dreams · habits · tasks' },
+      { path: '/', label: 'Today', icon: LayoutDashboard, hint: 'Voice · tasks · morning' },
       { path: '/daily', label: 'Daily lists', icon: Sun, hint: 'Shopping · routines · dates' },
       { path: '/tasks', label: 'All tasks', icon: CheckSquare, hint: 'Search & filter inbox' },
     ],
@@ -62,6 +62,12 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobileAddOpen, setMobileAddOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
+
+  useEffect(() => {
+    const openVoice = () => setVoiceOpen(true);
+    window.addEventListener('rozka-open-voice', openVoice);
+    return () => window.removeEventListener('rozka-open-voice', openVoice);
+  }, []);
 
   const { data: connections = [] } = useConnections();
   const pendingInviteCount = connections.filter((c) => c.status === 'pending_received').length;

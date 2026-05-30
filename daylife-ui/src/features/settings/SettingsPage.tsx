@@ -13,7 +13,7 @@ import {
   type HouseholdType,
 } from '../../lib/household';
 import { toast } from '../../components/Toaster';
-import { Heart, Download, Upload, Trash2, UserPlus, LogOut, Cloud, RefreshCw, Smartphone, Lock, KeyRound, Bell } from 'lucide-react';
+import { Heart, Download, Upload, Trash2, UserPlus, LogOut, Cloud, RefreshCw, Smartphone, Lock, KeyRound, Bell, LayoutDashboard } from 'lucide-react';
 import { usePwaInstall } from '../../hooks/usePwaInstall';
 import { AndroidInstallSteps, IosInstallSteps } from '../../components/InstallInstructions';
 import { PinModal } from '../../components/PinModal';
@@ -32,6 +32,7 @@ import {
   ensureAlertTopic,
 } from '../../lib/homeScreenPush';
 import { getActiveAccountId } from '../../lib/accounts';
+import { getSimpleMode, setSimpleMode } from '../../lib/simpleMode';
 
 export function SettingsPage() {
   const { user, logout, refreshUser } = useAuth();
@@ -49,6 +50,7 @@ export function SettingsPage() {
   const [notifPermission, setNotifPermission] = useState(notificationsPermission);
   const [homePushOn, setHomePushOn] = useState(homeScreenPushEnabled);
   const [alertTopic, setAlertTopic] = useState<string | null>(null);
+  const [simpleHome, setSimpleHome] = useState(getSimpleMode);
 
   const { data: household } = useQuery<HouseholdInfo>({
     queryKey: ['household'],
@@ -171,6 +173,28 @@ export function SettingsPage() {
           className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50 text-gray-700">
           <LogOut size={16} /> Log out
         </button>
+      </section>
+
+      <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-3">
+        <h2 className="font-semibold flex items-center gap-2">
+          <LayoutDashboard size={18} className="text-brand-600" /> Simple home screen
+        </h2>
+        <p className="text-sm text-gray-500">
+          Big voice button, today&apos;s tasks only, and morning auto-fill. Turn off to see dreams, shopping, and money on Today.
+        </p>
+        <label className="flex items-center justify-between gap-3 py-2 touch-manipulation cursor-pointer">
+          <span className="text-sm font-medium">Simple Today page</span>
+          <input
+            type="checkbox"
+            checked={simpleHome}
+            onChange={(e) => {
+              setSimpleHome(e.target.checked);
+              setSimpleMode(e.target.checked);
+              toast.success(e.target.checked ? 'Simple home on — open Today tab' : 'Full dashboard on — open Today tab');
+            }}
+            className="w-5 h-5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+          />
+        </label>
       </section>
 
       <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-4 hidden">

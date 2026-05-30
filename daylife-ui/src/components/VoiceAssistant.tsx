@@ -380,8 +380,8 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
           {aiEnabled && (
             <p className="text-xs text-violet-700 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
               {lang === 'hi-IN'
-                ? 'Hindi + English — बोलें “2 task doodh aur sabzi, yaad dilana”'
-                : 'Hindi + English — say “create 2 tasks order milk and veggies, remind me”'}
+                ? 'गलत pronunciation भी ठीक — बोलें “doodh sabzi task, yaad dilana”'
+                : 'Bad pronunciation OK — AI fixes it. Say “order milk and veggies, remind me”'}
             </p>
           )}
 

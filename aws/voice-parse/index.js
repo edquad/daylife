@@ -29,7 +29,16 @@ Action types:
 - note: {"type":"note","content":"..."}
 
 Understanding rules (IMPORTANT):
-- Fix speech errors: doodh/dudh/milk → "Order milk"; sabzi/sabjee/veggie/vegetable → "Order vegetables"; anda → eggs; bill/bijli → pay bill / electricity as context suggests.
+- Fix speech errors and bad pronunciation — map sounds to intent, not literal spelling:
+  doodh/dud/dudh/dood/milk → "Order milk"
+  sabzi/sabjee/savvy/sabji/veggie/vegetable/sabji → "Order vegetables" or "Sabzi order"
+  anda/anday/egg → eggs shopping or task
+  bill/bijli/bijlee/electric → pay electricity bill
+  pani/paani/water → drink water task
+  dawa/dawai/medicine → medicine task or shopping
+  kapde/kapda/laundry → laundry task
+  subah/subah ka / morning → morning routine tasks
+  task/tasq/tax/ask → task (ignore misheard word)
 - "2 task" / "do task" / "dono" / "pehla doosra" / numbered list → split into separate task actions.
 - remind / yaad / yaad dilana / reminder / notification / yaad rakhna → remind:true on tasks OR add reminder actions.
 - kal → tomorrow, parso → day after tomorrow, aaj → today (use context.today and context.selectedDate).
@@ -52,6 +61,22 @@ Input: "50 rupaye chai par kharch"
 
 Input: "shopping anda bread"
 → shopping eggs, shopping bread OR one shopping "anda, bread" — prefer separate shopping items if two things listed.`;
+
+const MORNING_SETUP_PROMPT = `You build a short morning task list for Rozka — a simple personal day planner.
+
+Return ONLY valid JSON (no markdown):
+{"actions":[...]}
+
+Each action must be:
+{"type":"task","title":"short clear title","area":"PERSONAL"|"WORK"|"HOME","dueDate":"YYYY-MM-DD"}
+
+Rules:
+- dueDate = context.today unless specified otherwise
+- If context.routines is a non-empty array, turn each routine line into a task (dedupe similar titles)
+- If routines empty, suggest 3–5 gentle morning tasks (plan day, drink water, breakfast, etc.)
+- Prefer Hindi titles if lang is hi-IN, English if en-US; keep titles under 6 words
+- Max 8 tasks total
+- No reminders, expenses, or shopping — tasks only`;
 
 function response(statusCode, body) {
   return { statusCode, headers: corsHeaders, body: JSON.stringify(body) };
@@ -144,11 +169,11 @@ function sanitizeActions(raw, selectedDate) {
   return out;
 }
 
-async function invokeModel(client, modelId, transcript, lang, context) {
+async function invokeModel(client, modelId, transcript, lang, context, systemPrompt = SYSTEM_PROMPT) {
   const userPayload = JSON.stringify({ transcript, lang, context });
   const command = new ConverseCommand({
     modelId,
-    system: [{ text: SYSTEM_PROMPT }],
+    system: [{ text: systemPrompt }],
     messages: [{ role: 'user', content: [{ text: userPayload }] }],
     inferenceConfig: { maxTokens: 1800, temperature: 0.15 },
   });
@@ -156,6 +181,20 @@ async function invokeModel(client, modelId, transcript, lang, context) {
   const text = result.output?.message?.content?.map((c) => c.text).filter(Boolean).join('') || '';
   const parsed = extractJson(text);
   return sanitizeActions(parsed.actions, context.selectedDate || context.today);
+}
+
+async function invokeMorningSetup(client, modelId, lang, context) {
+  const userPayload = JSON.stringify({ mode: 'morning_setup', lang, context });
+  const command = new ConverseCommand({
+    modelId,
+    system: [{ text: MORNING_SETUP_PROMPT }],
+    messages: [{ role: 'user', content: [{ text: userPayload }] }],
+    inferenceConfig: { maxTokens: 1200, temperature: 0.2 },
+  });
+  const result = await client.send(command);
+  const text = result.output?.message?.content?.map((c) => c.text).filter(Boolean).join('') || '';
+  const parsed = extractJson(text);
+  return sanitizeActions(parsed.actions, context.today || context.selectedDate);
 }
 
 async function transcribePcm(pcmBuffer, languageCode, sampleRateHertz) {
@@ -213,6 +252,23 @@ async function parseTranscript(transcript, lang, context) {
   throw lastError || new Error('Bedrock parse failed');
 }
 
+async function parseMorningSetup(lang, context) {
+  const region = process.env.AWS_REGION || 'ap-south-1';
+  const client = new BedrockRuntimeClient({ region });
+  let lastError = null;
+
+  for (const modelId of MODEL_IDS) {
+    try {
+      const actions = await invokeMorningSetup(client, modelId, lang, context);
+      return { actions, model: modelId };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Morning setup failed');
+}
+
 exports.handler = async (event) => {
   const method = event.requestContext?.http?.method || event.httpMethod || 'GET';
 
@@ -231,14 +287,25 @@ exports.handler = async (event) => {
     return response(400, { ok: false, error: 'Invalid JSON' });
   }
 
-  const transcriptInput = String(payload.transcript || '').trim();
-  let transcript = transcriptInput;
-
   const lang = payload.lang === 'en-US' ? 'en-US' : 'hi-IN';
   const today = typeof payload.context?.today === 'string' ? payload.context.today : new Date().toISOString().slice(0, 10);
   const selectedDate =
     typeof payload.context?.selectedDate === 'string' ? payload.context.selectedDate : today;
-  const context = { today, selectedDate, lang };
+  const routines = Array.isArray(payload.context?.routines) ? payload.context.routines : [];
+  const context = { today, selectedDate, lang, routines };
+
+  if (payload.mode === 'morning_setup') {
+    try {
+      const { actions, model } = await parseMorningSetup(lang, context);
+      return response(200, { ok: true, actions, model });
+    } catch (err) {
+      const message = err?.message || 'Morning setup failed';
+      return response(500, { ok: false, error: message });
+    }
+  }
+
+  const transcriptInput = String(payload.transcript || '').trim();
+  let transcript = transcriptInput;
 
   if (payload.audioBase64) {
     try {
