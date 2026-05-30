@@ -1,0 +1,9 @@
+{
+  "name": "rozka-push-relay",
+  "private": true,
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}

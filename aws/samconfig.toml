@@ -1,0 +1,9 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "rozka-push-relay"
+resolve_s3 = true
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = false
+fail_on_empty_changeset = false
+parameter_overrides = "VapidPublicKey=\"BET8I04xeWID8z61Rv6Mj7n-j7jF1rZgYmSOlLFHaZx9Yw29eiahe7IfAudP6OhbW8DuGhks21Z8j9BcvHHYF5g\""

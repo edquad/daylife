@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Rozka home-screen push relay (uses free-tier Lambda + HTTP API)
+
+Parameters:
+  VapidPublicKey:
+    Type: String
+    Description: Web Push VAPID public key (same as VITE_VAPID_PUBLIC_KEY in the app)
+  VapidPrivateKey:
+    Type: String
+    NoEcho: true
+    Description: Web Push VAPID private key (keep secret)
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 128
+    Runtime: nodejs20.x
+
+Resources:
+  PushRelayFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: push-relay/
+      Handler: index.handler
+      Description: Sends Web Push notifications for Rozka shared updates
+      Environment:
+        Variables:
+          VAPID_PUBLIC_KEY: !Ref VapidPublicKey
+          VAPID_PRIVATE_KEY: !Ref VapidPrivateKey
+      Events:
+        PushPost:
+          Type: HttpApi
+          Properties:
+            Path: /push
+            Method: POST
+        PushOptions:
+          Type: HttpApi
+          Properties:
+            Path: /push
+            Method: OPTIONS
+
+Outputs:
+  PushRelayUrl:
+    Description: Set this as GitHub variable DAYLIFE_PUSH_RELAY_URL (append /push)
+    Value: !Sub 'https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/push'
