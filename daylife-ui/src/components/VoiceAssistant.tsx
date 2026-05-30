@@ -19,6 +19,7 @@ import {
   getSpeechRecognitionCtor,
   isCloudMicSupported,
   isIOSDevice,
+  isIOSDictationMode,
   isVoiceInputSupported,
   isVoiceMicAvailable,
   recordPcmVoiceClip,
@@ -44,9 +45,11 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
   const [statusLine, setStatusLine] = useState('');
   const [holdToSpeak] = useState(isVoiceInputSupported());
   const [cloudMic] = useState(isCloudMicSupported());
+  const [iosDictation] = useState(isIOSDictationMode());
   const [micAvailable] = useState(isVoiceMicAvailable());
   const [onIOS] = useState(isIOSDevice());
   const [aiEnabled] = useState(voiceAiSupported());
+  const textInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const transcriptRef = useRef('');
   const holdingRef = useRef(false);
@@ -298,6 +301,15 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
 
   const handleMicTap = () => {
     if (holdToSpeak || state === 'processing') return;
+    if (iosDictation) {
+      textInputRef.current?.focus();
+      setStatusLine(
+        lang === 'hi-IN'
+          ? 'Keyboard के 🎤 से बोलें, फिर Parse दबाएं'
+          : 'Tap 🎤 on your keyboard to speak, then Parse',
+      );
+      return;
+    }
     if (state === 'listening') {
       stopCloudRecording();
       return;
@@ -366,15 +378,15 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
             </p>
           )}
 
-          {onIOS && cloudMic && (
+          {onIOS && iosDictation && (
             <p className="text-xs text-violet-700 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
               {lang === 'hi-IN'
-                ? 'iPhone: mic दबाएं, बोलें, फिर रोकने के लिए फिर दबाएं'
-                : 'iPhone: tap mic, speak, tap again to stop'}
+                ? 'iPhone: नीचे box में tap करें → keyboard पर 🎤 से Hindi/English बोलें → Parse'
+                : 'iPhone: tap the box → use keyboard 🎤 to speak → tap Parse (AI adds tasks)'}
             </p>
           )}
 
-          {onIOS && !cloudMic && (
+          {onIOS && !iosDictation && (
             <div className="mb-4 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
               {lang === 'hi-IN'
                 ? 'Voice के लिए app refresh करें — या नीचे type करें'
@@ -391,7 +403,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                 onPointerLeave={holdToSpeak ? handleHoldEnd : undefined}
                 onPointerCancel={holdToSpeak ? handleHoldEnd : undefined}
                 onClick={holdToSpeak ? undefined : handleMicTap}
-                disabled={state === 'processing' && !recordingRef.current}
+                disabled={state === 'processing' && !recordingRef.current && !iosDictation}
                 className={cn(
                   'w-24 h-24 rounded-full mx-auto flex items-center justify-center text-white shadow-lg touch-manipulation select-none',
                   state === 'listening'
@@ -420,6 +432,10 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                     ? lang === 'hi-IN'
                       ? 'Hold करके बोलें'
                       : 'Hold to speak'
+                  : iosDictation
+                    ? lang === 'hi-IN'
+                      ? 'Keyboard 🎤 के लिए tap'
+                      : 'Tap for keyboard voice'
                     : lang === 'hi-IN'
                       ? 'Mic दबाकर बोलें'
                       : 'Tap mic to speak'}
@@ -458,6 +474,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
             </p>
             <div className="flex gap-2">
               <input
+                ref={textInputRef}
                 value={typed}
                 onChange={(e) => setTyped(e.target.value)}
                 onKeyDown={(e) => {

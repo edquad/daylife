@@ -71,7 +71,11 @@ export async function transcribeAndParseVoice(
   };
 
   if (!res.ok || !data.ok) {
-    throw new Error(data.error || 'Voice transcription failed');
+    const raw = data.error || 'Voice transcription failed';
+    if (/subscription/i.test(raw)) {
+      throw new Error('Use keyboard microphone or type below — no paid AWS plan needed');
+    }
+    throw new Error(raw);
   }
 
   const transcript = (data.transcript || '').trim();

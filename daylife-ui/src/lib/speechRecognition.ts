@@ -17,14 +17,20 @@ export function isVoiceInputSupported(): boolean {
   return Boolean(getSpeechRecognitionCtor());
 }
 
-/** Mic + cloud transcribe (works on iPhone when VITE_VOICE_PARSE_URL is set). */
+/** Mic + cloud transcribe (Android/desktop fallback — not used on iPhone). */
 export function isCloudMicSupported(): boolean {
   if (typeof navigator === 'undefined') return false;
+  if (isIOSDevice()) return false;
   return Boolean(navigator.mediaDevices?.getUserMedia) && Boolean(import.meta.env.VITE_VOICE_PARSE_URL);
 }
 
+/** iPhone: use keyboard dictation into the text box, then AI parse (no AWS Transcribe). */
+export function isIOSDictationMode(): boolean {
+  return isIOSDevice() && Boolean(import.meta.env.VITE_VOICE_PARSE_URL);
+}
+
 export function isVoiceMicAvailable(): boolean {
-  return isVoiceInputSupported() || isCloudMicSupported();
+  return isVoiceInputSupported() || isCloudMicSupported() || isIOSDictationMode();
 }
 
 export async function requestMicrophoneAccess(): Promise<'granted' | 'denied' | 'unavailable'> {

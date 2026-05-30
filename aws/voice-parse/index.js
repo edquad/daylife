@@ -229,11 +229,14 @@ exports.handler = async (event) => {
       transcript = await transcribePcm(pcm, lang, sampleRate);
     } catch (err) {
       const message = err?.message || 'Transcription failed';
+      const friendly = message.includes('subscription')
+        ? 'Amazon Transcribe not enabled yet (one-time free AWS setup, not a paid plan)'
+        : message;
       return response(500, {
         ok: false,
-        error: message,
-        hint: message.includes('AccessDenied')
-          ? 'Allow Amazon Transcribe for the Lambda role in IAM'
+        error: friendly,
+        hint: message.includes('subscription')
+          ? 'Use keyboard dictation on iPhone, or enable Transcribe once in AWS Console'
           : undefined,
       });
     }
