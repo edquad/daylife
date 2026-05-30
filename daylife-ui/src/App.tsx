@@ -15,6 +15,7 @@ import { DailyLifePage } from './features/daily/DailyLifePage';
 import { VisionBoardPage } from './features/vision/VisionBoardPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { ConnectionsPage } from './features/connections/ConnectionsPage';
+import { ChatPage } from './features/chat/ChatPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { NotFoundPage } from './components/NotFoundPage';
 import { Toaster } from './components/Toaster';
@@ -73,6 +74,8 @@ export default function App() {
               <Route path="work" element={<AreaRedirect area="WORK" />} />
               <Route path="home" element={<AreaRedirect area="HOME" />} />
               <Route path="share" element={<ErrorBoundary><ConnectionsPage /></ErrorBoundary>} />
+              <Route path="chat" element={<ErrorBoundary><ChatPage /></ErrorBoundary>} />
+              <Route path="chat/:spaceId" element={<ErrorBoundary><ChatPage /></ErrorBoundary>} />
               <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>

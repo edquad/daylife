@@ -20,7 +20,8 @@ export type ShareFeature =
   | 'notes'
   | 'reminders'
   | 'routines'
-  | 'vision';
+  | 'vision'
+  | 'chat';
 
 export const ALL_SHARE_FEATURES: ShareFeature[] = [
   'tasks',
@@ -49,6 +50,7 @@ export const SHARE_FEATURE_PAGES: Record<ShareFeature, { label: string; path: st
   routines: { label: 'Daily life → Routines', path: '/daily?tab=routines' },
   notes: { label: 'Today → notes', path: '/' },
   vision: { label: 'Vision board', path: '/vision' },
+  chat: { label: 'Chat', path: '/chat' },
 };
 
 function connectionRank(status: Connection['status']): number {
@@ -84,6 +86,7 @@ export const SHARE_FEATURE_LABELS: Record<ShareFeature, { title: string; descrip
   reminders: { title: 'Reminders', description: 'Shared upcoming dates in Daily life' },
   routines: { title: 'Routines', description: 'Shared morning/evening habits in Daily life' },
   vision: { title: 'Vision board', description: 'Shared goals & dreams on Vision page' },
+  chat: { title: 'Chat', description: 'Messages with people you share with' },
 };
 
 export interface ShareInvite {
@@ -124,6 +127,14 @@ export interface SharedNote {
   createdAt: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  authorId: string;
+  authorAccountId: string;
+  content: string;
+  createdAt: string;
+}
+
 export interface SharedSpaceData {
   id: string;
   memberAccountIds: [string, string];
@@ -140,6 +151,7 @@ export interface SharedSpaceData {
   routines: Routine[];
   routineLogs: RoutineDayLog[];
   visionBoard: VisionBoardItem[];
+  messages: ChatMessage[];
   updatedAt?: string;
 }
 
@@ -155,6 +167,7 @@ export function normalizeSharedSpace(space: SharedSpaceData): SharedSpaceData {
     routines: space.routines ?? [],
     routineLogs: space.routineLogs ?? [],
     visionBoard: space.visionBoard ?? [],
+    messages: space.messages ?? [],
   };
 }
 
@@ -192,6 +205,7 @@ export function mergeSharedSpace(local: SharedSpaceData, remote: SharedSpaceData
     routines: mergeById(local.routines ?? [], remote.routines ?? []),
     routineLogs: mergeRoutineLogs(local.routineLogs ?? [], remote.routineLogs ?? []),
     visionBoard: mergeById(local.visionBoard ?? [], remote.visionBoard ?? []),
+    messages: mergeById(local.messages ?? [], remote.messages ?? []),
     updatedAt: new Date().toISOString(),
   });
 }
@@ -398,6 +412,7 @@ export function emptySharedSpace(
     routines: [],
     routineLogs: [],
     visionBoard: [],
+    messages: [],
   });
 }
 

@@ -33,6 +33,7 @@ import {
   type ShareFeature,
   type ShareInvite,
   type SharedSpaceData,
+  type ChatMessage,
   fetchInbox,
   pushInbox,
   fetchSharedSpace,
@@ -50,9 +51,19 @@ import {
 } from './sharing';
 import { fetchFromGitHub, flushCloudSyncNow, isGitHubConfigured, loadGitHubConfig } from './githubSync';
 import { notifySharedConnectionPartner, notifyPartnerHomeScreen } from './homeScreenPush';
+import { countUnreadMessages } from './chatReadState';
 
-export type { Connection, ShareFeature, ShareInvite };
+export type { Connection, ShareFeature, ShareInvite, ChatMessage };
 export { ALL_SHARE_FEATURES, SHARE_FEATURE_LABELS, SHARE_FEATURE_GROUPS };
+
+export interface ChatThreadSummary {
+  spaceId: string;
+  connectionId: string;
+  partnerUsername: string;
+  partnerName?: string;
+  lastMessage?: ChatMessage;
+  unreadCount: number;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -2631,6 +2642,83 @@ async function handleRequest<T>(path: string, method: string, body?: unknown): P
       space.visionBoard.splice(idx, 1);
       await saveSharedSpace(space);
       return undefined as T;
+    }
+  }
+
+  if (route === '/chat/threads' && method === 'GET') {
+    const accountId = getActiveAccountId();
+    if (!accountId) return [] as T;
+    const active = (data.connections || []).filter((c) => c.status === 'active' && c.sharedSpaceId);
+    const threads: ChatThreadSummary[] = [];
+    for (const conn of active) {
+      const space = await fetchSharedSpace(conn.sharedSpaceId!);
+      const messages = space?.messages ?? [];
+      const sorted = [...messages].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const lastMessage = sorted.length > 0 ? sorted[sorted.length - 1] : undefined;
+      threads.push({
+        spaceId: conn.sharedSpaceId!,
+        connectionId: conn.id,
+        partnerUsername: conn.partnerUsername,
+        partnerName: conn.partnerName,
+        lastMessage,
+        unreadCount: countUnreadMessages(conn.sharedSpaceId!, messages, accountId),
+      });
+    }
+    threads.sort((a, b) => {
+      const at = a.lastMessage?.createdAt || '';
+      const bt = b.lastMessage?.createdAt || '';
+      return bt.localeCompare(at);
+    });
+    return threads as T;
+  }
+
+  const sharedMessagesMatch = route.match(/^\/shared\/([^/]+)\/messages$/);
+  if (sharedMessagesMatch) {
+    const spaceId = sharedMessagesMatch[1];
+    const conn = getSharedConnection(data, spaceId);
+
+    if (method === 'GET') {
+      const space = await requireSharedSpace(conn, data);
+      const limit = Math.min(parseInt(q.get('limit') || '100', 10) || 100, 200);
+      const after = q.get('after');
+      let messages = [...(space.messages || [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      if (after) {
+        messages = messages.filter((m) => m.createdAt > after);
+      }
+      if (messages.length > limit) {
+        messages = messages.slice(-limit);
+      }
+      return messages as T;
+    }
+
+    if (method === 'POST') {
+      const b = body as { content?: string };
+      const content = b.content?.trim();
+      if (!content) throw new ApiError(400, 'Message is required');
+      if (content.length > 4000) throw new ApiError(400, 'Message too long');
+      const accountId = getActiveAccountId();
+      if (!accountId) throw new ApiError(403, 'Not signed in');
+      const space = await requireSharedSpace(conn, data);
+      const message: ChatMessage = {
+        id: uid(),
+        authorId: sessionId!,
+        authorAccountId: accountId,
+        content,
+        createdAt: new Date().toISOString(),
+      };
+      space.messages = space.messages || [];
+      space.messages.push(message);
+      await saveSharedSpace(space);
+      const me = data.users.find((u) => u.id === sessionId);
+      if (me?.username) {
+        void notifySharedConnectionPartner(
+          conn.partnerAccountId,
+          me.username,
+          content.slice(0, 120),
+          'chat',
+        );
+      }
+      return message as T;
     }
   }
 

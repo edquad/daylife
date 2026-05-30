@@ -37,6 +37,7 @@ import {
   ChevronDown,
   ChevronUp,
   UserRound,
+  MessageCircle,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { normalizeUsername } from '../../lib/accounts';
@@ -53,6 +54,7 @@ const FEATURE_ICONS: Record<ShareFeature, typeof CheckSquare> = {
   reminders: Bell,
   routines: Sun,
   vision: Star,
+  chat: MessageCircle,
 };
 
 const SHARE_PRESETS: Array<{ id: string; label: string; features: ShareFeature[] }> = [
@@ -355,9 +357,19 @@ export function ConnectionsPage() {
                           Together: <strong>{shareScopeLabel(c.features)}</strong>
                         </p>
                       </div>
-                      <Link to="/" className="text-xs text-brand-600 shrink-0 flex items-center gap-0.5 touch-manipulation">
-                        Today <ArrowRight size={12} />
-                      </Link>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <Link to="/" className="text-xs text-brand-600 flex items-center gap-0.5 touch-manipulation">
+                          Today <ArrowRight size={12} />
+                        </Link>
+                        {c.sharedSpaceId && (
+                          <Link
+                            to={`/chat/${c.sharedSpaceId}`}
+                            className="text-xs text-violet-700 flex items-center gap-0.5 touch-manipulation font-medium"
+                          >
+                            <MessageCircle size={12} /> Chat
+                          </Link>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <input

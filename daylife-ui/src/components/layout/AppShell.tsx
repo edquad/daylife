@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../../features/auth/AuthContext';
 import { useGitHubSync } from '../../features/sync/GitHubSyncContext';
 import { useConnections } from '../../hooks/useConnections';
+import { useChatUnreadCount } from '../../hooks/useChatUnread';
 import { DayPicker } from '../DayPicker';
 import { InstallAppBanner } from '../InstallAppBanner';
 import { PendingNotificationsPrompt } from '../PendingNotificationsPrompt';
@@ -11,7 +12,7 @@ import { AppLogo } from '../AppLogo';
 import { APP_NAME, APP_TAGLINE } from '../../lib/brand';
 import {
   LayoutDashboard, CheckSquare, Receipt, Settings,
-  Menu, X, Plus, LogOut, BarChart3, Cloud, CloudOff, Loader2, Star, HandCoins, Users, Mic,
+  Menu, X, Plus, LogOut, BarChart3, Cloud, CloudOff, Loader2, Star, HandCoins, Users, Mic, MessageCircle,
   ShoppingCart, Sun, Bell,
 } from 'lucide-react';
 import { VoiceAssistantSheet, VoiceMicButton } from '../VoiceAssistant';
@@ -42,6 +43,7 @@ const navGroups = [
     label: 'More',
     items: [
       { path: '/share', label: 'Share', icon: Users },
+      { path: '/chat', label: 'Chat', icon: MessageCircle, hint: 'Message your connections' },
       { path: '/settings', label: 'Settings', icon: Settings },
     ],
   },
@@ -63,13 +65,19 @@ export function AppShell() {
 
   const { data: connections = [] } = useConnections();
   const pendingInviteCount = connections.filter((c) => c.status === 'pending_received').length;
+  const chatUnreadCount = useChatUnreadCount();
 
   const navItems = navGroups.flatMap((g) => g.items);
 
   const NavLink = ({ item, onClick }: { item: typeof navItems[0]; onClick?: () => void }) => {
     const Icon = item.icon;
     const active = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
-    const badge = item.path === '/share' && pendingInviteCount > 0 ? pendingInviteCount : 0;
+    const badge =
+      item.path === '/share' && pendingInviteCount > 0
+        ? pendingInviteCount
+        : item.path === '/chat' && chatUnreadCount > 0
+          ? chatUnreadCount
+          : 0;
     return (
       <Link
         to={item.path}
