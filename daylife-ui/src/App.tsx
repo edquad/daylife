@@ -22,6 +22,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { NotFoundPage } from './components/NotFoundPage';
 import { Toaster } from './components/Toaster';
 import { AppUpdateBanner } from './components/AppUpdateBanner';
+import { checkForNewerAppBuild } from './lib/appVersionCheck';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -56,6 +57,10 @@ function AreaRedirect({ area }: { area: 'HOME' | 'WORK' }) {
 }
 
 export default function App() {
+  React.useEffect(() => {
+    checkForNewerAppBuild();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <GitHubSyncProvider>

@@ -46,7 +46,10 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         importScripts: ['sw-push.js'],
+        cacheId: 'rozka-daylife-v3',
+        cleanupOutdatedCaches: true,
         navigateFallback: `${appScope}index.html`.replace(/\/+/g, '/'),
+        navigateFallbackDenylist: [/^\/daylife\/assets\//, /\/[^/?]+\.[^/]+$/],
         runtimeCaching: [
           {
             urlPattern: ({ request }) => request.mode === 'navigate',

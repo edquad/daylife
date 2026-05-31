@@ -23,7 +23,7 @@ export function AppUpdateBanner() {
         </p>
         <button
           type="button"
-          onClick={() => applyAppUpdate()}
+          onClick={() => void applyAppUpdate()}
           className="shrink-0 px-3 py-1.5 bg-white text-brand-800 rounded-lg text-sm font-semibold"
         >
           Update

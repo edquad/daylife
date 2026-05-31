@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --port 5174",
     "build": "node scripts/generate-pwa-icons.mjs && tsc -b && vite build",
+    "build:pages": "node scripts/generate-pwa-icons.mjs && tsc -b && vite build && node scripts/prepare-github-pages.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },

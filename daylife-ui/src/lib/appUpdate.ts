@@ -8,7 +8,15 @@ export function notifyAppUpdateAvailable(): void {
   window.dispatchEvent(new CustomEvent('daylife-app-update-available'));
 }
 
-export function applyAppUpdate(): void {
+export async function applyAppUpdate(): Promise<void> {
+  if ('serviceWorker' in navigator) {
+    const registration = await navigator.serviceWorker.getRegistration();
+    await registration?.unregister();
+  }
+  if ('caches' in window) {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((key) => caches.delete(key)));
+  }
   if (reloadApp) reloadApp();
   else window.location.reload();
 }
