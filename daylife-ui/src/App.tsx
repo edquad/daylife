@@ -20,6 +20,7 @@ import { ConnectionsPage } from './features/connections/ConnectionsPage';
 import { ChatPage } from './features/chat/ChatPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { NotFoundPage } from './components/NotFoundPage';
+import { PrivacyPage } from './pages/PrivacyPage';
 import { Toaster } from './components/Toaster';
 import { AppUpdateBanner } from './components/AppUpdateBanner';
 import { checkForNewerAppBuild } from './lib/appVersionCheck';
@@ -70,6 +71,7 @@ export default function App() {
           <Toaster />
           <Routes>
             <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+            <Route path="/privacy" element={<PrivacyPage />} />
             <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
               <Route index element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
               <Route path="tasks" element={<ErrorBoundary><TasksPage /></ErrorBoundary>} />
