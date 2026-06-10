@@ -8,29 +8,20 @@ export function isIOSDevice(): boolean {
 
 export function getSpeechRecognitionCtor(): (new () => SpeechRecognition) | null {
   if (typeof window === 'undefined') return null;
-  if (isIOSDevice()) return null;
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
-/** Browser hold-to-speak (not available on iPhone Safari). */
 export function isVoiceInputSupported(): boolean {
   return Boolean(getSpeechRecognitionCtor());
 }
 
-/** Mic + cloud transcribe (Android/desktop fallback — not used on iPhone). */
 export function isCloudMicSupported(): boolean {
   if (typeof navigator === 'undefined') return false;
-  if (isIOSDevice()) return false;
   return Boolean(navigator.mediaDevices?.getUserMedia) && Boolean(import.meta.env.VITE_VOICE_PARSE_URL);
 }
 
-/** iPhone: use keyboard dictation into the text box, then AI parse (no AWS Transcribe). */
-export function isIOSDictationMode(): boolean {
-  return isIOSDevice() && Boolean(import.meta.env.VITE_VOICE_PARSE_URL);
-}
-
 export function isVoiceMicAvailable(): boolean {
-  return isVoiceInputSupported() || isCloudMicSupported() || isIOSDictationMode();
+  return isVoiceInputSupported() || isCloudMicSupported();
 }
 
 export async function requestMicrophoneAccess(): Promise<'granted' | 'denied' | 'unavailable'> {
@@ -60,7 +51,7 @@ export function speechErrorMessage(code: string): string {
     case 'service-not-allowed':
       return 'Microphone blocked — allow it in phone Settings → browser → Rozka';
     case 'no-speech':
-      return 'Did not hear anything — hold mic and speak clearly';
+      return 'Did not hear anything — tap mic and speak clearly';
     case 'network':
       return 'Voice needs internet — check your connection';
     case 'audio-capture':
@@ -106,7 +97,6 @@ export interface RecordedVoiceClip {
   sampleRate: number;
 }
 
-/** Record short speech as PCM for AWS Transcribe (iPhone + any browser without Web Speech). */
 export async function recordPcmVoiceClip(options: {
   maxMs?: number;
   signal?: AbortSignal;

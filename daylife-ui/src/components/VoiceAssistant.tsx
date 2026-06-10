@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Mic, Loader2, Sparkles, X, Keyboard, Check } from 'lucide-react';
+import { Mic, MicOff, Loader2, Sparkles, X, Keyboard, Check, Square } from 'lucide-react';
 import { useAuth } from '../features/auth/AuthContext';
 import { toast } from './Toaster';
 import { cn } from '../lib/utils';
@@ -13,23 +13,17 @@ import {
   type VoiceAction,
   type VoiceLang,
 } from '../lib/voiceCommands';
-import { parseVoiceTranscriptSmart, transcribeAndParseVoice, voiceAiSupported } from '../lib/voiceBedrock';
+import { parseVoiceTranscriptSmart, voiceAiSupported } from '../lib/voiceBedrock';
 import { executeVoiceActions, voiceQueryKeysToInvalidate } from '../lib/executeVoiceCommands';
 import {
   collectTranscript,
   getSpeechRecognitionCtor,
-  isCloudMicSupported,
-  isIOSDevice,
-  isIOSDictationMode,
-  isVoiceInputSupported,
   isVoiceMicAvailable,
-  recordPcmVoiceClip,
   requestMicrophoneAccess,
   speechErrorMessage,
-  type RecordedVoiceClip,
 } from '../lib/speechRecognition';
 
-type VoiceState = 'idle' | 'listening' | 'processing' | 'preview';
+type VoiceState = 'idle' | 'listening' | 'processing';
 
 interface VoiceAssistantSheetProps {
   open: boolean;
@@ -43,28 +37,23 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
   const [lang, setLang] = useState<VoiceLang>(() => getVoiceLang());
   const [transcript, setTranscript] = useState('');
   const [typed, setTyped] = useState('');
-  const [pending, setPending] = useState<VoiceAction[]>([]);
   const [statusLine, setStatusLine] = useState('');
-  const [holdToSpeak] = useState(isVoiceInputSupported());
-  const [cloudMic] = useState(isCloudMicSupported());
-  const [iosDictation] = useState(isIOSDictationMode());
+  const [addedItems, setAddedItems] = useState<string[]>([]);
   const [micAvailable] = useState(isVoiceMicAvailable());
-  const [onIOS] = useState(isIOSDevice());
   const [aiEnabled] = useState(voiceAiSupported());
   const textInputRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const transcriptRef = useRef('');
-  const holdingRef = useRef(false);
-  const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const recordAbortRef = useRef<AbortController | null>(null);
-  const recordingRef = useRef(false);
-  const holdRecordPromiseRef = useRef<Promise<RecordedVoiceClip | null> | null>(null);
+  const stateRef = useRef<VoiceState>('idle');
   const recordStartedAtRef = useRef(0);
   const [recordSeconds, setRecordSeconds] = useState(0);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /** WhatsApp-style: hold mic, release to send — Web Speech or PCM clip. */
-  const whatsappHold = (holdToSpeak || cloudMic) && !iosDictation;
   const hints = getVoiceHints(lang);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     if (state !== 'listening') {
@@ -82,17 +71,13 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
   useEffect(() => {
     if (!open) {
       recordStartedAtRef.current = 0;
-      holdRecordPromiseRef.current = null;
       recognitionRef.current?.abort();
-      recordAbortRef.current?.abort();
-      holdingRef.current = false;
-      recordingRef.current = false;
-      if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       setState('idle');
       setTranscript('');
       setTyped('');
-      setPending([]);
       setStatusLine('');
+      setAddedItems([]);
     }
   }, [open]);
 
@@ -101,10 +86,10 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
     setVoiceLang(next);
   };
 
-  const runActions = useCallback(
-    async (actions: VoiceAction[]) => {
+  const addActions = useCallback(
+    async (actions: VoiceAction[], spokenText: string) => {
       if (!user?.id || actions.length === 0) {
-        setStatusLine(lang === 'hi-IN' ? 'समझ नहीं आया — नीचे example देखें' : 'Could not understand — see examples');
+        setStatusLine(lang === 'hi-IN' ? 'समझ नहीं आया — फिर बोलें या type करें' : 'Could not understand — try again or type');
         setState('idle');
         return;
       }
@@ -114,93 +99,79 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       voiceQueryKeysToInvalidate().forEach((key) => {
         queryClient.invalidateQueries({ queryKey: key });
       });
-      setPending([]);
-      setState('idle');
+
+      const descriptions = actions.map((a) => describeVoiceAction(a));
+      setAddedItems((prev) => [...descriptions, ...prev]);
+
       if (result.ok.length > 0) {
         toast.success(
           lang === 'hi-IN'
             ? `${result.ok.length} चीज़ add हो गई`
             : `Added ${result.ok.length} item${result.ok.length > 1 ? 's' : ''}`,
         );
-        onClose();
       }
       if (result.failed.length > 0) {
-        setStatusLine(`Failed: ${result.failed.join(', ')}`);
         toast.error('Some items could not be added');
       }
-    },
-    [user?.id, queryClient, onClose, lang],
-  );
 
-  const parseTranscript = useCallback(async (text: string): Promise<VoiceAction[]> => {
-    const trimmed = text.trim();
-    if (!trimmed) return [];
-    setTranscript(trimmed);
-    setStatusLine(lang === 'hi-IN' ? 'AI समझ रहा है…' : 'AI understanding…');
-    const { actions } = await parseVoiceTranscriptSmart(trimmed, lang);
-    return actions;
-  }, [lang]);
-
-  const submitText = useCallback(
-    async (text: string, autoAdd = false) => {
-      setState('processing');
-      const actions = await parseTranscript(text);
-      if (actions.length === 0) {
-        setStatusLine(
-          lang === 'hi-IN'
-            ? 'बोलें: 2 task doodh aur sabzi, yaad dilana'
-            : 'Try: create 2 tasks order milk and veggies, remind me',
-        );
-        setState('idle');
-        return;
-      }
-      if (autoAdd) {
-        setStatusLine(
-          lang === 'hi-IN'
-            ? `${actions.length} चीज़ add हो रही…`
-            : `Adding ${actions.length} item${actions.length > 1 ? 's' : ''}…`,
-        );
-        await runActions(actions);
-        return;
-      }
-      setPending(actions);
-      setState('preview');
+      setTranscript('');
+      setState('idle');
       setStatusLine(
         lang === 'hi-IN'
-          ? `${actions.length} चीज़ — सही है? गलत हो तो नीचे edit करें`
-          : `${actions.length} item(s) — correct? edit below if wrong`,
+          ? 'और बोलें या mic tap करें'
+          : 'Speak more or tap mic again',
       );
     },
-    [parseTranscript, lang, runActions],
+    [user?.id, queryClient, lang],
   );
 
-  const finishListening = useCallback(() => {
-    if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
-    stopTimerRef.current = setTimeout(() => {
-      const text = transcriptRef.current.trim();
-      holdingRef.current = false;
-      if (text) {
-        setTyped(text);
-        void submitText(text, true);
-      } else {
+  const parseAndAdd = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      setTranscript(trimmed);
+      setState('processing');
+      setStatusLine(lang === 'hi-IN' ? 'AI समझ रहा है…' : 'AI understanding…');
+      try {
+        const { actions } = await parseVoiceTranscriptSmart(trimmed, lang);
+        if (actions.length === 0) {
+          setStatusLine(
+            lang === 'hi-IN'
+              ? 'समझ नहीं आया — example: "2 task doodh aur sabzi, yaad dilana"'
+              : 'Could not parse — try: "create 2 tasks order milk and veggies"',
+          );
+          setState('idle');
+          return;
+        }
+        await addActions(actions, trimmed);
+      } catch {
+        setStatusLine(lang === 'hi-IN' ? 'AI error — type करके भेजें' : 'AI error — type and send instead');
         setState('idle');
-        setStatusLine(lang === 'hi-IN' ? 'कुछ सुनाई नहीं दिया — फिर hold करें' : 'No speech heard — hold mic again');
       }
-    }, 500);
-  }, [submitText, lang]);
+    },
+    [lang, addActions],
+  );
 
-  const stopRecognition = useCallback(() => {
-    try {
-      recognitionRef.current?.stop();
-    } catch {
-      /* ignore */
+  const stopListening = useCallback(() => {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    const text = transcriptRef.current.trim();
+    try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+    recognitionRef.current = null;
+    recordStartedAtRef.current = 0;
+
+    if (text) {
+      setTyped(text);
+      void parseAndAdd(text);
+    } else {
+      setState('idle');
+      setStatusLine(lang === 'hi-IN' ? 'कुछ सुनाई नहीं दिया — फिर tap करें' : 'No speech heard — tap mic again');
     }
-  }, []);
+  }, [parseAndAdd, lang]);
 
   const startListening = useCallback(async () => {
     const SpeechCtor = getSpeechRecognitionCtor();
     if (!SpeechCtor) {
-      setStatusLine(lang === 'hi-IN' ? 'iPhone पर type करें' : 'Use text box on iPhone');
+      setStatusLine(lang === 'hi-IN' ? 'Voice support नहीं — type करें' : 'Voice not supported — type below');
       return;
     }
 
@@ -208,7 +179,6 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
     setState('processing');
     setStatusLine(lang === 'hi-IN' ? 'Mic allow करें…' : 'Allow microphone…');
     setTranscript('');
-    setPending([]);
     transcriptRef.current = '';
 
     const mic = await requestMicrophoneAccess();
@@ -228,13 +198,20 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
     recognition.onstart = () => {
       recordStartedAtRef.current = Date.now();
       setState('listening');
-      setStatusLine(lang === 'hi-IN' ? 'बोलें… छोड़ें = भेजें' : 'Speak… release to send');
+      setStatusLine(lang === 'hi-IN' ? 'बोलें… done होने पर Stop tap करें' : 'Speak… tap Stop when done');
     };
 
     recognition.onresult = (event) => {
       const text = collectTranscript(event);
       transcriptRef.current = text;
       setTranscript(text);
+
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(() => {
+        if (stateRef.current === 'listening' && transcriptRef.current.trim()) {
+          stopListening();
+        }
+      }, 3000);
     };
 
     recognition.onerror = (event) => {
@@ -243,13 +220,19 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
         setStatusLine(msg);
         if (event.error !== 'no-speech') toast.error(msg);
       }
-      holdingRef.current = false;
       setState('idle');
     };
 
     recognition.onend = () => {
-      if (holdingRef.current) return;
-      finishListening();
+      if (stateRef.current === 'listening') {
+        const text = transcriptRef.current.trim();
+        if (text) {
+          void parseAndAdd(text);
+        } else {
+          setState('idle');
+          setStatusLine(lang === 'hi-IN' ? 'कुछ सुनाई नहीं दिया' : 'No speech detected');
+        }
+      }
     };
 
     try {
@@ -258,128 +241,14 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       setState('idle');
       setStatusLine(lang === 'hi-IN' ? 'Mic start नहीं हुआ — type करें' : 'Mic failed — type below');
     }
-  }, [finishListening, lang]);
-
-  const processVoiceClip = useCallback(
-    async (clip: { base64: string; sampleRate: number }) => {
-      setState('processing');
-      setStatusLine(lang === 'hi-IN' ? 'AI समझ रहा है…' : 'AI deciding what to add…');
-      try {
-        const { transcript: heard, actions } = await transcribeAndParseVoice(clip, lang);
-        if (heard) {
-          setTranscript(heard);
-          setTyped(heard);
-        }
-        if (actions.length === 0) {
-          setState('idle');
-          setStatusLine(
-            lang === 'hi-IN'
-              ? 'समझ नहीं आया — नीचे type करें'
-              : 'Could not understand — type below instead',
-          );
-          return;
-        }
-        setStatusLine(
-          lang === 'hi-IN'
-            ? `${actions.length} चीज़ add हो रही…`
-            : `Adding ${actions.length} item${actions.length > 1 ? 's' : ''}…`,
-        );
-        await runActions(actions);
-      } catch (err) {
-        setState('idle');
-        const msg = err instanceof Error ? err.message : 'Voice failed';
-        setStatusLine(msg);
-        toast.error(msg);
-      }
-    },
-    [lang, runActions],
-  );
-
-  const startHoldPcmRecording = useCallback(async () => {
-    if (recordingRef.current || !cloudMic) return;
-
-    setState('processing');
-    setStatusLine(lang === 'hi-IN' ? 'Mic allow करें…' : 'Allow microphone…');
-    setTranscript('');
-    setPending([]);
-
-    const mic = await requestMicrophoneAccess();
-    if (mic === 'denied') {
-      setState('idle');
-      setStatusLine(lang === 'hi-IN' ? 'Settings में mic allow करें' : 'Enable mic in Settings');
-      toast.error('Allow microphone access');
-      return;
-    }
-    if (mic === 'unavailable') {
-      setState('idle');
-      setStatusLine(lang === 'hi-IN' ? 'Mic उपलब्ध नहीं' : 'Microphone unavailable');
-      return;
-    }
-
-    recordingRef.current = true;
-    recordStartedAtRef.current = Date.now();
-    recordAbortRef.current = new AbortController();
-    setState('listening');
-    setStatusLine(lang === 'hi-IN' ? 'बोलें… छोड़ें = भेजें' : 'Speak… release to send');
-
-    holdRecordPromiseRef.current = recordPcmVoiceClip({
-      signal: recordAbortRef.current.signal,
-      maxMs: 60000,
-    });
-  }, [cloudMic, lang]);
-
-  const finishHoldPcmRecording = useCallback(async () => {
-    if (!recordingRef.current) return;
-    recordAbortRef.current?.abort();
-    const promise = holdRecordPromiseRef.current;
-    holdRecordPromiseRef.current = null;
-    recordingRef.current = false;
-    recordStartedAtRef.current = 0;
-
-    const clip = promise ? await promise : null;
-    if (!clip) {
-      setState('idle');
-      setStatusLine(
-        lang === 'hi-IN' ? 'बहुत छोटा — फिर hold करके बोलें' : 'Too short — hold mic and speak again',
-      );
-      return;
-    }
-    await processVoiceClip(clip);
-  }, [lang, processVoiceClip]);
+  }, [stopListening, parseAndAdd, lang]);
 
   const handleMicTap = () => {
-    if (whatsappHold || state === 'processing') return;
-    if (iosDictation) {
-      textInputRef.current?.focus();
-      setStatusLine(
-        lang === 'hi-IN'
-          ? 'Keyboard 🎤 से बोलें → Enter दबाएं'
-          : 'Speak with keyboard 🎤 → press Enter to send',
-      );
-    }
-  };
-
-  const handleHoldStart = (e: React.PointerEvent) => {
-    e.preventDefault();
-    if (!whatsappHold || state === 'processing') return;
-    holdingRef.current = true;
-    if (holdToSpeak) void startListening();
-    else void startHoldPcmRecording();
-  };
-
-  const handleHoldEnd = () => {
-    if (!whatsappHold) return;
-    if (holdToSpeak) {
-      if (!holdingRef.current && state !== 'listening') return;
-      holdingRef.current = false;
-      recordStartedAtRef.current = 0;
-      stopRecognition();
-      finishListening();
-      return;
-    }
-    if (recordingRef.current) {
-      holdingRef.current = false;
-      void finishHoldPcmRecording();
+    if (state === 'processing') return;
+    if (state === 'listening') {
+      stopListening();
+    } else {
+      void startListening();
     }
   };
 
@@ -404,6 +273,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
         </div>
 
         <div className="p-5">
+          {/* Language toggle */}
           <div className="flex gap-2 mb-4">
             {(['hi-IN', 'en-US'] as VoiceLang[]).map((code) => (
               <button
@@ -422,128 +292,95 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
             ))}
           </div>
 
-          {aiEnabled && whatsappHold && (
-            <p className="text-xs text-violet-700 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
-              {lang === 'hi-IN'
-                ? 'WhatsApp जैसा — mic hold करें, बोलें, छोड़ें → AI खुद task/expense add करेगा'
-                : 'Like WhatsApp — hold mic, speak, release → AI auto-adds tasks & more'}
-            </p>
-          )}
+          {/* How it works */}
+          <p className="text-xs text-violet-700 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
+            {lang === 'hi-IN'
+              ? 'Mic tap → बोलें → AI खुद task, expense, shopping, note बनाएगा'
+              : 'Tap mic → speak naturally → AI auto-creates tasks, expenses, notes'}
+          </p>
 
-          {aiEnabled && !whatsappHold && (
-            <p className="text-xs text-violet-700 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
-              {lang === 'hi-IN'
-                ? 'गलत pronunciation भी ठीक — बोलें “doodh sabzi task, yaad dilana”'
-                : 'Bad pronunciation OK — AI fixes it. Say “order milk and veggies, remind me”'}
-            </p>
-          )}
-
-          {onIOS && iosDictation && (
-            <p className="text-xs text-violet-700 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
-              {lang === 'hi-IN'
-                ? 'iPhone: box tap → keyboard 🎤 → Enter = AI auto add'
-                : 'iPhone: tap box → keyboard 🎤 → Enter sends & AI adds automatically'}
-            </p>
-          )}
-
-          {onIOS && !iosDictation && (
-            <div className="mb-4 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
-              {lang === 'hi-IN'
-                ? 'Voice के लिए app refresh करें — या नीचे type करें'
-                : 'Refresh the app for voice — or type below'}
-            </div>
-          )}
-
+          {/* Mic button */}
           {micAvailable && (
             <div className="text-center mb-5">
               <button
                 type="button"
-                onPointerDown={whatsappHold ? handleHoldStart : undefined}
-                onPointerUp={whatsappHold ? handleHoldEnd : undefined}
-                onPointerLeave={whatsappHold ? handleHoldEnd : undefined}
-                onPointerCancel={whatsappHold ? handleHoldEnd : undefined}
-                onClick={whatsappHold ? undefined : handleMicTap}
-                disabled={state === 'processing' && !recordingRef.current && !holdingRef.current}
-                style={{ touchAction: whatsappHold ? 'none' : undefined }}
+                onClick={handleMicTap}
+                disabled={state === 'processing'}
                 className={cn(
-                  'w-24 h-24 rounded-full mx-auto flex items-center justify-center text-white shadow-lg touch-manipulation select-none',
+                  'w-24 h-24 rounded-full mx-auto flex items-center justify-center text-white shadow-lg touch-manipulation select-none transition-all duration-200',
                   state === 'listening'
-                    ? 'bg-red-500 scale-110 ring-4 ring-red-200 animate-pulse'
+                    ? 'bg-red-500 scale-110 ring-4 ring-red-200'
                     : state === 'processing'
                       ? 'bg-gray-400'
                       : 'bg-violet-600 active:scale-95',
                 )}
               >
-                {state === 'processing' && !recordingRef.current && !holdingRef.current ? (
+                {state === 'processing' ? (
                   <Loader2 size={36} className="animate-spin" />
+                ) : state === 'listening' ? (
+                  <Square size={32} fill="white" />
                 ) : (
                   <Mic size={36} />
                 )}
               </button>
+
               {state === 'listening' && recordSeconds > 0 && (
-                <p className="mt-2 text-xs font-mono text-red-600 tabular-nums">
+                <p className="mt-2 text-xs font-mono text-red-600 tabular-nums animate-pulse">
                   {Math.floor(recordSeconds / 60)}:{String(recordSeconds % 60).padStart(2, '0')}
                 </p>
               )}
+
               <p className="mt-3 text-sm font-semibold">
                 {state === 'listening'
-                  ? whatsappHold
-                    ? lang === 'hi-IN'
-                      ? 'छोड़ें = भेजें'
-                      : 'Release to send'
-                    : lang === 'hi-IN'
-                      ? 'बोलें…'
-                      : 'Speaking…'
+                  ? lang === 'hi-IN'
+                    ? 'सुन रहा हूँ… Stop करने के लिए tap करें'
+                    : 'Listening… tap to stop'
                   : state === 'processing'
                     ? lang === 'hi-IN'
                       ? 'AI decide कर रहा है…'
                       : 'AI deciding…'
-                  : whatsappHold
-                    ? lang === 'hi-IN'
-                      ? 'Hold करके बोलें (WhatsApp जैसा)'
-                      : 'Hold to talk (like WhatsApp)'
-                    : iosDictation
-                      ? lang === 'hi-IN'
-                        ? 'Type box → keyboard 🎤'
-                        : 'Type box → keyboard 🎤'
-                      : lang === 'hi-IN'
-                        ? 'Mic hold करें'
-                        : 'Hold mic to speak'}
+                    : lang === 'hi-IN'
+                      ? 'Mic tap करें और बोलें'
+                      : 'Tap mic and speak'}
               </p>
+
+              {/* Live transcript */}
               {transcript && (
-                <p className="mt-2 text-sm text-gray-600 italic px-2">&ldquo;{transcript}&rdquo;</p>
+                <div className="mt-3 mx-2 p-3 rounded-xl bg-gray-50 border border-gray-200">
+                  <p className="text-xs font-semibold text-gray-500 mb-1">
+                    {lang === 'hi-IN' ? 'सुना:' : 'Heard:'}
+                  </p>
+                  <p className="text-sm text-gray-800 italic">&ldquo;{transcript}&rdquo;</p>
+                </div>
               )}
             </div>
           )}
 
-          {pending.length > 0 && state === 'preview' && (
-            <div className="mb-4 p-3 rounded-xl bg-green-50 border border-green-200">
-              {transcript && (
-                <p className="text-xs text-green-900 mb-2 pb-2 border-b border-green-200">
-                  <span className="font-semibold">{lang === 'hi-IN' ? 'सुना:' : 'Heard:'}</span>{' '}
-                  &ldquo;{transcript}&rdquo;
-                </p>
-              )}
-              <p className="text-xs font-semibold text-green-800 mb-2">
-                {lang === 'hi-IN' ? 'ये add होगा:' : 'Will add:'}
-              </p>
-              <ul className="space-y-1 text-sm text-green-900">
-                {pending.map((a, i) => (
-                  <li key={i}>• {describeVoiceAction(a)}</li>
-                ))}
-              </ul>
-              <button
-                type="button"
-                onClick={() => void runActions(pending)}
-                className="mt-3 w-full py-3 bg-green-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 touch-manipulation"
-              >
-                <Check size={18} /> {lang === 'hi-IN' ? 'Add करें' : 'Add now'}
-              </button>
+          {!micAvailable && (
+            <div className="mb-4 px-3 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">
+              {lang === 'hi-IN'
+                ? 'इस browser पर voice नहीं चलेगा — नीचे type करें'
+                : 'Voice not supported in this browser — type below'}
             </div>
           )}
 
           {statusLine && <p className="text-xs text-gray-500 mb-3 text-center">{statusLine}</p>}
 
+          {/* Recently added items */}
+          {addedItems.length > 0 && (
+            <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+              <p className="text-xs font-semibold text-emerald-800 mb-2 flex items-center gap-1">
+                <Check size={14} /> {lang === 'hi-IN' ? 'Add हो गया:' : 'Added:'}
+              </p>
+              <ul className="space-y-1 text-sm text-emerald-900">
+                {addedItems.slice(0, 8).map((desc, i) => (
+                  <li key={i}>• {desc}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Text input */}
           <div className={micAvailable ? 'border-t pt-4' : ''}>
             <p className="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
               <Keyboard size={14} /> {lang === 'hi-IN' ? 'Type करें' : 'Or type'}
@@ -556,7 +393,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    void submitText(typed, true);
+                    void parseAndAdd(typed);
                   }
                 }}
                 placeholder={hints[0]}
@@ -567,7 +404,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
               />
               <button
                 type="button"
-                onClick={() => void submitText(typed, true)}
+                onClick={() => void parseAndAdd(typed)}
                 disabled={!typed.trim() || state === 'processing'}
                 className="px-4 py-3 bg-brand-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 touch-manipulation shrink-0"
               >
@@ -576,6 +413,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
             </div>
           </div>
 
+          {/* Examples */}
           <div className="mt-4">
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
               {lang === 'hi-IN' ? 'उदाहरण' : 'Examples'}
@@ -587,7 +425,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                   type="button"
                   onClick={() => {
                     setTyped(hint);
-                    void submitText(hint, true);
+                    void parseAndAdd(hint);
                   }}
                   className="text-xs text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-full px-3 py-1.5 touch-manipulation"
                 >
