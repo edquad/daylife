@@ -15,7 +15,7 @@ import {
 } from '../../lib/gmailConnect';
 import { toast } from '../../components/Toaster';
 
-export function GmailMailPage() {
+export function GmailMailPage({ embedded }: { embedded?: boolean } = {}) {
   const queryClient = useQueryClient();
   const configured = gmailApiConfigured();
   const [selectedId, setSelectedId] = useState<string | null>(null);

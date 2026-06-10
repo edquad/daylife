@@ -7,15 +7,12 @@ import { GitHubSyncProvider } from './features/sync/GitHubSyncContext';
 import { LoginPage } from './features/auth/LoginPage';
 import { AppShell } from './components/layout/AppShell';
 import { DashboardPage } from './features/dashboard/DashboardPage';
-import { TasksPage } from './features/tasks/TasksPage';
-import { ExpensesPage } from './features/expenses/ExpensesPage';
-import { ExpenseReportsPage } from './features/expenses/ExpenseReportsPage';
-import { SplitBalancesPage } from './features/expenses/SplitBalancesPage';
+import { MoneyPage } from './features/money/MoneyPage';
+import { CommsPage } from './features/comms/CommsPage';
+import { MorePage } from './features/more/MorePage';
 import { AiCalendarPage } from './features/calendar/AiCalendarPage';
-import { DailyLifePage } from './features/daily/DailyLifePage';
 import { VisionBoardPage } from './features/vision/VisionBoardPage';
 import { SettingsPage } from './features/settings/SettingsPage';
-import { GmailMailPage } from './features/mail/GmailMailPage';
 import { ConnectionsPage } from './features/connections/ConnectionsPage';
 import { ChatPage } from './features/chat/ChatPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -53,10 +50,6 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
 const routerBasename = import.meta.env.BASE_URL.replace(/\/$/, '') || undefined;
 
-function AreaRedirect({ area }: { area: 'HOME' | 'WORK' }) {
-  return <Navigate to={`/tasks?area=${area}&status=TODO`} replace />;
-}
-
 export default function App() {
   React.useEffect(() => {
     checkForNewerAppBuild();
@@ -73,21 +66,32 @@ export default function App() {
             <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
+              {/* Main tabs */}
               <Route index element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
-              <Route path="tasks" element={<ErrorBoundary><TasksPage /></ErrorBoundary>} />
-              <Route path="expenses" element={<ErrorBoundary><ExpensesPage /></ErrorBoundary>} />
-              <Route path="splits" element={<ErrorBoundary><SplitBalancesPage /></ErrorBoundary>} />
-              <Route path="reports" element={<ErrorBoundary><ExpenseReportsPage /></ErrorBoundary>} />
-              <Route path="daily" element={<ErrorBoundary><DailyLifePage /></ErrorBoundary>} />
-              <Route path="calendar" element={<ErrorBoundary><AiCalendarPage /></ErrorBoundary>} />
+              <Route path="money" element={<ErrorBoundary><MoneyPage /></ErrorBoundary>} />
+              <Route path="comms" element={<ErrorBoundary><CommsPage /></ErrorBoundary>} />
+              <Route path="more" element={<ErrorBoundary><MorePage /></ErrorBoundary>} />
+
+              {/* Accessible from More */}
               <Route path="vision" element={<ErrorBoundary><VisionBoardPage /></ErrorBoundary>} />
-              <Route path="work" element={<AreaRedirect area="WORK" />} />
-              <Route path="home" element={<AreaRedirect area="HOME" />} />
+              <Route path="calendar" element={<ErrorBoundary><AiCalendarPage /></ErrorBoundary>} />
               <Route path="share" element={<ErrorBoundary><ConnectionsPage /></ErrorBoundary>} />
-              <Route path="chat" element={<ErrorBoundary><ChatPage /></ErrorBoundary>} />
-              <Route path="chat/:spaceId" element={<ErrorBoundary><ChatPage /></ErrorBoundary>} />
-              <Route path="mail" element={<ErrorBoundary><GmailMailPage /></ErrorBoundary>} />
               <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
+
+              {/* Direct chat thread links */}
+              <Route path="chat/:spaceId" element={<ErrorBoundary><ChatPage /></ErrorBoundary>} />
+
+              {/* Legacy redirects */}
+              <Route path="expenses" element={<Navigate to="/money" replace />} />
+              <Route path="splits" element={<Navigate to="/money" replace />} />
+              <Route path="reports" element={<Navigate to="/money" replace />} />
+              <Route path="tasks" element={<Navigate to="/" replace />} />
+              <Route path="daily" element={<Navigate to="/" replace />} />
+              <Route path="chat" element={<Navigate to="/comms" replace />} />
+              <Route path="mail" element={<Navigate to="/comms" replace />} />
+              <Route path="home" element={<Navigate to="/" replace />} />
+              <Route path="work" element={<Navigate to="/" replace />} />
+
               <Route path="*" element={<NotFoundPage />} />
             </Route>
             <Route path="*" element={<NotFoundPage />} />

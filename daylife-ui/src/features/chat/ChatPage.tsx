@@ -247,7 +247,7 @@ function ChatThread({ spaceId }: { spaceId: string }) {
   );
 }
 
-export function ChatPage() {
+export function ChatPage({ embedded }: { embedded?: boolean } = {}) {
   const { spaceId } = useParams<{ spaceId?: string }>();
   const { data: threads = [] } = useQuery({
     queryKey: ['chat', 'threads'],
@@ -260,10 +260,14 @@ export function ChatPage() {
 
   if (spaceId) {
     return (
-      <div className="px-4 py-4 sm:px-6 max-w-lg mx-auto">
+      <div className={embedded ? '' : 'px-4 py-4 sm:px-6 max-w-lg mx-auto'}>
         <ChatThread spaceId={spaceId} />
       </div>
     );
+  }
+
+  if (embedded) {
+    return <ThreadList />;
   }
 
   return (
