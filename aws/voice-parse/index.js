@@ -16,7 +16,13 @@ const MODEL_IDS = (process.env.BEDROCK_MODEL_IDS || 'apac.amazon.nova-lite-v1:0,
   .map((s) => s.trim())
   .filter(Boolean);
 
-const SYSTEM_PROMPT = `You parse messy spoken commands for Rozka AI — an AI life companion app. Input is from speech-to-text: expect typos, missing words, Hindi, English, or Hinglish mixed.
+const SYSTEM_PROMPT = `You parse messy spoken commands for Rozka AI — an AI life companion app. Input is from speech-to-text: expect SEVERE typos, corrupted numbers, missing words, Hindi, English, or Hinglish mixed.
+
+CRITICAL: Speech-to-text is VERY unreliable. You MUST:
+1. RECONSTRUCT intent from garbled text — don't take words literally
+2. FIX corrupted numbers: D00000/D0000/d000 → likely 200-2000, O00/Oo → likely 100, etc.
+3. Map phonetically similar garbage to real Hindi words
+4. If something SOUNDS like a number pattern (D + zeros, or letters + numbers), interpret as a rupee amount
 
 Return ONLY valid JSON (no markdown):
 {"actions":[...]}
@@ -29,27 +35,41 @@ Action types:
 - note: {"type":"note","content":"..."}
 
 Understanding rules (IMPORTANT):
+- SPEECH CORRUPTION PATTERNS (fix these):
+  D00000/D0000/d00 → 200, 2000 (browser turns "do sau" into D + zeros)
+  O00/Oo0 → 100 (browser turns "ek sau" into O + zeros)
+  T00/T000 → 300, 3000 ("teen sau")
+  P00/P500 → 500 ("paanch sau")
+  "sabhi" → "sabji/sabzi" (vegetables)
+  "online" → "mangayi/mangaya/order" (ordered)
+  "mane" → "maine" (I did)
+  Any text with a garbled number pattern near food/purchase words = expense
 - Fix speech errors and bad pronunciation — map sounds to intent, not literal spelling:
   doodh/dud/dudh/dood/milk → "Order milk"
-  sabzi/sabjee/savvy/sabji/veggie/vegetable/sabji → "Order vegetables" or "Sabzi order"
-  anda/anday/egg → eggs shopping or task
+  sabzi/sabjee/savvy/sabji/sabhi/veggie/vegetable → vegetables
+  anda/anday/egg → eggs
   bill/bijli/bijlee/electric → pay electricity bill
-  pani/paani/water → drink water task
-  dawa/dawai/medicine → medicine task or shopping
-  kapde/kapda/laundry → laundry task
-  subah/subah ka / morning → morning routine tasks
-  task/tasq/tax/ask → task (ignore misheard word)
+  pani/paani/water → drink water
+  dawa/dawai/medicine → medicine
+  kapde/kapda/laundry → laundry
+  subah/subah ka/morning → morning routine
+  mangayi/mangaya/manga/order/online → ordered (expense context)
+  kharcha/kharch/spent/rupaye/rs/paise → expense
 - "2 task" / "do task" / "dono" / "pehla doosra" / numbered list → split into separate task actions.
-- remind / yaad / yaad dilana / reminder / notification / yaad rakhna → remind:true on tasks OR add reminder actions.
+- remind / yaad / yaad dilana / reminder → remind:true on tasks OR add reminder actions.
 - kal → tomorrow, parso → day after tomorrow, aaj → today (use context.today and context.selectedDate).
 - Default dueDate = context.selectedDate unless user gives another date.
 - Short clear English or Hindi titles (e.g. "Doodh mangwana", "Order milk", "Pay electricity bill").
 - If user clearly wants shopping (kharidna, lana, buy, shopping list) use shopping type.
-- If amount + money words (rs, rupaye, kharch, spent) use expense.
+- If amount + purchase/food/money context → use expense. ALWAYS try to extract a sensible amount.
 - When intent is unclear but sounds like a todo → create a task rather than returning empty.
 - Ignore filler: please, kripya, ok, um, matlab, basically, rozka, add karo, bana do.
+- NEVER return empty actions array if there's any recognizable intent in the input.
 
 Examples:
+Input: "aaj mane D00000 sabhi online" (garbled: "aaj maine 200 ki online sabji mangayi")
+→ expense 200, cat-groceries, description "Online sabji order"
+
 Input: "please create 2 task order milk and order veggie also remind me"
 → two tasks with remind:true
 
@@ -58,6 +78,9 @@ Input: "doodh aur sabzi ka order karo yaad dilana"
 
 Input: "50 rupaye chai par kharch"
 → expense 50, cat-dining, description chai
+
+Input: "P500 petrol dala" (garbled: "500 rupaye petrol dala")
+→ expense 500, cat-transport, description "Petrol"
 
 Input: "shopping anda bread"
 → shopping eggs, shopping bread OR one shopping "anda, bread" — prefer separate shopping items if two things listed.`;

@@ -406,13 +406,18 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
 
           {/* Confirmation step — user can edit before sending */}
           {state === 'confirm' && (
-            <div className="mb-5 p-4 rounded-2xl bg-blue-50 border-2 border-blue-200">
+            <div className="mb-5 p-4 rounded-2xl bg-amber-50 border-2 border-amber-200">
               <div className="flex items-center gap-2 mb-2">
-                <Pencil size={14} className="text-blue-600" />
-                <p className="text-xs font-semibold text-blue-800">
-                  {lang === 'hi-IN' ? 'AI ने यह सुना — edit कर सकते हैं:' : 'AI heard this — you can edit:'}
+                <Pencil size={14} className="text-amber-600" />
+                <p className="text-xs font-bold text-amber-800">
+                  {lang === 'hi-IN' ? 'गलत सुना? नीचे सही लिखें:' : 'Wrong? Fix it below:'}
                 </p>
               </div>
+              <p className="text-[11px] text-amber-700 mb-2">
+                {lang === 'hi-IN'
+                  ? 'Voice गलत सुनता है — सही text लिखकर Send करें'
+                  : 'Voice often mishears — type the correct text and Send'}
+              </p>
               <textarea
                 ref={confirmInputRef}
                 value={editableText}
@@ -424,7 +429,8 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                   }
                 }}
                 rows={3}
-                className="w-full px-3 py-2.5 border border-blue-200 rounded-xl text-base outline-none focus:ring-2 focus:ring-blue-400 resize-none bg-white"
+                className="w-full px-3 py-3 border border-amber-300 rounded-xl text-base outline-none focus:ring-2 focus:ring-amber-400 resize-none bg-white font-medium"
+                placeholder={lang === 'hi-IN' ? 'e.g. aaj 200 ki sabji mangayi online' : 'e.g. today spent 200 on vegetables online'}
                 autoComplete="off"
               />
               <div className="flex gap-2 mt-3">
@@ -432,16 +438,16 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                   type="button"
                   onClick={handleConfirmSend}
                   disabled={!editableText.trim()}
-                  className="flex-1 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 touch-manipulation flex items-center justify-center gap-1.5"
+                  className="flex-1 py-3 bg-brand-600 text-white rounded-xl text-sm font-bold disabled:opacity-50 touch-manipulation flex items-center justify-center gap-1.5"
                 >
-                  <Check size={16} /> {lang === 'hi-IN' ? 'Send करें' : 'Send to AI'}
+                  <Check size={16} /> {lang === 'hi-IN' ? 'AI को भेजें' : 'Send to AI'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => void startListening()}
-                  className="px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium touch-manipulation"
+                  onClick={() => { setEditableText(''); setState('idle'); }}
+                  className="px-4 py-3 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium touch-manipulation"
                 >
-                  {lang === 'hi-IN' ? 'फिर बोलें' : 'Re-record'}
+                  {lang === 'hi-IN' ? 'Cancel' : 'Clear'}
                 </button>
               </div>
             </div>
@@ -466,8 +472,13 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
           {/* Text input fallback */}
           {state !== 'confirm' && (
             <div className={micAvailable ? 'border-t pt-4' : ''}>
-              <p className="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
-                <Keyboard size={14} /> {lang === 'hi-IN' ? 'या Type करें' : 'Or type'}
+              <p className="text-xs font-bold text-gray-700 mb-2 flex items-center gap-1.5">
+                <Keyboard size={14} /> {lang === 'hi-IN' ? 'Type करें (ज़्यादा accurate)' : 'Type instead (more accurate)'}
+              </p>
+              <p className="text-[11px] text-gray-400 mb-2">
+                {lang === 'hi-IN'
+                  ? 'Hindi/English dono chalega: "200 sabji online", "milk lana", "gym task kal"'
+                  : 'Examples: "200 spent groceries", "buy milk", "gym tomorrow"'}
               </p>
               <div className="flex gap-2 items-end">
                 <textarea
@@ -482,7 +493,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                   }}
                   placeholder={hints[0]}
                   rows={2}
-                  className="flex-1 px-3 py-3 border rounded-xl text-base outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                  className="flex-1 px-3 py-3 border-2 border-gray-200 rounded-xl text-base outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 resize-none font-medium"
                   autoComplete="off"
                   enterKeyHint="done"
                 />
