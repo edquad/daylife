@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Mic, MicOff, Loader2, Sparkles, X, Keyboard, Check, Square } from 'lucide-react';
+import { Mic, Loader2, Sparkles, X, Keyboard, Check, Square, Pencil } from 'lucide-react';
 import { useAuth } from '../features/auth/AuthContext';
 import { toast } from './Toaster';
 import { cn } from '../lib/utils';
@@ -23,7 +23,7 @@ import {
   speechErrorMessage,
 } from '../lib/speechRecognition';
 
-type VoiceState = 'idle' | 'listening' | 'processing';
+type VoiceState = 'idle' | 'listening' | 'confirm' | 'processing';
 
 interface VoiceAssistantSheetProps {
   open: boolean;
@@ -36,12 +36,13 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
   const [state, setState] = useState<VoiceState>('idle');
   const [lang, setLang] = useState<VoiceLang>(() => getVoiceLang());
   const [transcript, setTranscript] = useState('');
-  const [typed, setTyped] = useState('');
+  const [editableText, setEditableText] = useState('');
   const [statusLine, setStatusLine] = useState('');
   const [addedItems, setAddedItems] = useState<string[]>([]);
   const [micAvailable] = useState(isVoiceMicAvailable());
   const [aiEnabled] = useState(voiceAiSupported());
   const textInputRef = useRef<HTMLTextAreaElement>(null);
+  const confirmInputRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const transcriptRef = useRef('');
   const stateRef = useRef<VoiceState>('idle');
@@ -75,11 +76,21 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       setState('idle');
       setTranscript('');
-      setTyped('');
+      setEditableText('');
       setStatusLine('');
       setAddedItems([]);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (state === 'confirm' && confirmInputRef.current) {
+      confirmInputRef.current.focus();
+      confirmInputRef.current.setSelectionRange(
+        confirmInputRef.current.value.length,
+        confirmInputRef.current.value.length,
+      );
+    }
+  }, [state]);
 
   const changeLang = (next: VoiceLang) => {
     setLang(next);
@@ -87,9 +98,9 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
   };
 
   const addActions = useCallback(
-    async (actions: VoiceAction[], spokenText: string) => {
+    async (actions: VoiceAction[], _spokenText: string) => {
       if (!user?.id || actions.length === 0) {
-        setStatusLine(lang === 'hi-IN' ? 'समझ नहीं आया — फिर बोलें या type करें' : 'Could not understand — try again or type');
+        setStatusLine(lang === 'hi-IN' ? 'समझ नहीं आया — edit करें या फिर बोलें' : 'Could not understand — edit or try again');
         setState('idle');
         return;
       }
@@ -115,11 +126,12 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       }
 
       setTranscript('');
+      setEditableText('');
       setState('idle');
       setStatusLine(
         lang === 'hi-IN'
           ? 'और बोलें या mic tap करें'
-          : 'Speak more or tap mic again',
+          : 'Done! Speak more or tap mic again',
       );
     },
     [user?.id, queryClient, lang],
@@ -137,16 +149,18 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
         if (actions.length === 0) {
           setStatusLine(
             lang === 'hi-IN'
-              ? 'समझ नहीं आया — example: "2 task doodh aur sabzi, yaad dilana"'
-              : 'Could not parse — try: "create 2 tasks order milk and veggies"',
+              ? 'समझ नहीं आया — edit करके try करें'
+              : 'Could not parse — try editing and resend',
           );
-          setState('idle');
+          setState('confirm');
+          setEditableText(trimmed);
           return;
         }
         await addActions(actions, trimmed);
       } catch {
-        setStatusLine(lang === 'hi-IN' ? 'AI error — type करके भेजें' : 'AI error — type and send instead');
-        setState('idle');
+        setStatusLine(lang === 'hi-IN' ? 'AI error — edit करके भेजें' : 'AI error — edit and resend');
+        setState('confirm');
+        setEditableText(trimmed);
       }
     },
     [lang, addActions],
@@ -160,13 +174,18 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
     recordStartedAtRef.current = 0;
 
     if (text) {
-      setTyped(text);
-      void parseAndAdd(text);
+      setState('confirm');
+      setEditableText(text);
+      setStatusLine(
+        lang === 'hi-IN'
+          ? 'सही है? ✓ Send करें या edit करें'
+          : 'Correct? Tap Send or edit below',
+      );
     } else {
       setState('idle');
       setStatusLine(lang === 'hi-IN' ? 'कुछ सुनाई नहीं दिया — फिर tap करें' : 'No speech heard — tap mic again');
     }
-  }, [parseAndAdd, lang]);
+  }, [lang]);
 
   const startListening = useCallback(async () => {
     const SpeechCtor = getSpeechRecognitionCtor();
@@ -179,6 +198,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
     setState('processing');
     setStatusLine(lang === 'hi-IN' ? 'Mic allow करें…' : 'Allow microphone…');
     setTranscript('');
+    setEditableText('');
     transcriptRef.current = '';
 
     const mic = await requestMicrophoneAccess();
@@ -193,12 +213,13 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
     recognition.lang = lang === 'hi-IN' ? 'hi-IN' : 'en-IN';
     recognition.continuous = true;
     recognition.interimResults = true;
+    (recognition as any).maxAlternatives = 3;
     recognitionRef.current = recognition;
 
     recognition.onstart = () => {
       recordStartedAtRef.current = Date.now();
       setState('listening');
-      setStatusLine(lang === 'hi-IN' ? 'बोलें… done होने पर Stop tap करें' : 'Speak… tap Stop when done');
+      setStatusLine(lang === 'hi-IN' ? 'बोलें… done होने पर Stop tap करें' : 'Speak naturally… tap Stop when done');
     };
 
     recognition.onresult = (event) => {
@@ -211,7 +232,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
         if (stateRef.current === 'listening' && transcriptRef.current.trim()) {
           stopListening();
         }
-      }, 3000);
+      }, 5000);
     };
 
     recognition.onerror = (event) => {
@@ -227,7 +248,13 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       if (stateRef.current === 'listening') {
         const text = transcriptRef.current.trim();
         if (text) {
-          void parseAndAdd(text);
+          setState('confirm');
+          setEditableText(text);
+          setStatusLine(
+            lang === 'hi-IN'
+              ? 'सही है? ✓ Send करें या edit करें'
+              : 'Correct? Tap Send or edit below',
+          );
         } else {
           setState('idle');
           setStatusLine(lang === 'hi-IN' ? 'कुछ सुनाई नहीं दिया' : 'No speech detected');
@@ -241,7 +268,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       setState('idle');
       setStatusLine(lang === 'hi-IN' ? 'Mic start नहीं हुआ — type करें' : 'Mic failed — type below');
     }
-  }, [stopListening, parseAndAdd, lang]);
+  }, [stopListening, lang]);
 
   const handleMicTap = () => {
     if (state === 'processing') return;
@@ -249,6 +276,12 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       stopListening();
     } else {
       void startListening();
+    }
+  };
+
+  const handleConfirmSend = () => {
+    if (editableText.trim()) {
+      void parseAndAdd(editableText);
     }
   };
 
@@ -295,12 +328,12 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
           {/* How it works */}
           <p className="text-xs text-violet-700 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
             {lang === 'hi-IN'
-              ? 'Mic tap → बोलें → AI खुद task, expense, shopping, note बनाएगा'
-              : 'Tap mic → speak naturally → AI auto-creates tasks, expenses, notes'}
+              ? 'Mic tap → बोलें → check करें → Send → AI task/expense/shopping बना देगा'
+              : 'Tap mic → speak → review what was heard → Send → AI creates items'}
           </p>
 
           {/* Mic button */}
-          {micAvailable && (
+          {micAvailable && state !== 'confirm' && (
             <div className="text-center mb-5">
               <button
                 type="button"
@@ -338,17 +371,17 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
                   : state === 'processing'
                     ? lang === 'hi-IN'
                       ? 'AI decide कर रहा है…'
-                      : 'AI deciding…'
+                      : 'AI processing…'
                     : lang === 'hi-IN'
                       ? 'Mic tap करें और बोलें'
                       : 'Tap mic and speak'}
               </p>
 
-              {/* Live transcript */}
-              {transcript && (
+              {/* Live transcript preview */}
+              {transcript && state === 'listening' && (
                 <div className="mt-3 mx-2 p-3 rounded-xl bg-gray-50 border border-gray-200">
                   <p className="text-xs font-semibold text-gray-500 mb-1">
-                    {lang === 'hi-IN' ? 'सुना:' : 'Heard:'}
+                    {lang === 'hi-IN' ? 'सुन रहा:' : 'Hearing:'}
                   </p>
                   <p className="text-sm text-gray-800 italic">&ldquo;{transcript}&rdquo;</p>
                 </div>
@@ -356,11 +389,54 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
             </div>
           )}
 
-          {!micAvailable && (
+          {!micAvailable && state !== 'confirm' && (
             <div className="mb-4 px-3 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">
               {lang === 'hi-IN'
                 ? 'इस browser पर voice नहीं चलेगा — नीचे type करें'
                 : 'Voice not supported in this browser — type below'}
+            </div>
+          )}
+
+          {/* Confirmation step — user can edit before sending */}
+          {state === 'confirm' && (
+            <div className="mb-5 p-4 rounded-2xl bg-blue-50 border-2 border-blue-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Pencil size={14} className="text-blue-600" />
+                <p className="text-xs font-semibold text-blue-800">
+                  {lang === 'hi-IN' ? 'AI ने यह सुना — edit कर सकते हैं:' : 'AI heard this — you can edit:'}
+                </p>
+              </div>
+              <textarea
+                ref={confirmInputRef}
+                value={editableText}
+                onChange={(e) => setEditableText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleConfirmSend();
+                  }
+                }}
+                rows={3}
+                className="w-full px-3 py-2.5 border border-blue-200 rounded-xl text-base outline-none focus:ring-2 focus:ring-blue-400 resize-none bg-white"
+                autoComplete="off"
+              />
+              <div className="flex gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={handleConfirmSend}
+                  disabled={!editableText.trim()}
+                  className="flex-1 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 touch-manipulation flex items-center justify-center gap-1.5"
+                >
+                  <Check size={16} /> {lang === 'hi-IN' ? 'Send करें' : 'Send to AI'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void startListening()}
+                  className="px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium touch-manipulation"
+                >
+                  {lang === 'hi-IN' ? 'फिर बोलें' : 'Re-record'}
+                </button>
+              </div>
             </div>
           )}
 
@@ -380,60 +456,64 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
             </div>
           )}
 
-          {/* Text input */}
-          <div className={micAvailable ? 'border-t pt-4' : ''}>
-            <p className="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
-              <Keyboard size={14} /> {lang === 'hi-IN' ? 'Type करें' : 'Or type'}
-            </p>
-            <div className="flex gap-2 items-end">
-              <textarea
-                ref={textInputRef}
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    void parseAndAdd(typed);
-                  }
-                }}
-                placeholder={hints[0]}
-                rows={2}
-                className="flex-1 px-3 py-3 border rounded-xl text-base outline-none focus:ring-2 focus:ring-brand-500 resize-none"
-                autoComplete="off"
-                enterKeyHint="done"
-              />
-              <button
-                type="button"
-                onClick={() => void parseAndAdd(typed)}
-                disabled={!typed.trim() || state === 'processing'}
-                className="px-4 py-3 bg-brand-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 touch-manipulation shrink-0"
-              >
-                {lang === 'hi-IN' ? 'भेजें' : 'Send'}
-              </button>
+          {/* Text input fallback */}
+          {state !== 'confirm' && (
+            <div className={micAvailable ? 'border-t pt-4' : ''}>
+              <p className="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1.5">
+                <Keyboard size={14} /> {lang === 'hi-IN' ? 'या Type करें' : 'Or type'}
+              </p>
+              <div className="flex gap-2 items-end">
+                <textarea
+                  ref={textInputRef}
+                  value={editableText}
+                  onChange={(e) => setEditableText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      void parseAndAdd(editableText);
+                    }
+                  }}
+                  placeholder={hints[0]}
+                  rows={2}
+                  className="flex-1 px-3 py-3 border rounded-xl text-base outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                  autoComplete="off"
+                  enterKeyHint="done"
+                />
+                <button
+                  type="button"
+                  onClick={() => void parseAndAdd(editableText)}
+                  disabled={!editableText.trim() || state === 'processing'}
+                  className="px-4 py-3 bg-brand-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 touch-manipulation shrink-0"
+                >
+                  {lang === 'hi-IN' ? 'भेजें' : 'Send'}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Examples */}
-          <div className="mt-4">
-            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
-              {lang === 'hi-IN' ? 'उदाहरण' : 'Examples'}
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {hints.map((hint) => (
-                <button
-                  key={hint}
-                  type="button"
-                  onClick={() => {
-                    setTyped(hint);
-                    void parseAndAdd(hint);
-                  }}
-                  className="text-xs text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-full px-3 py-1.5 touch-manipulation"
-                >
-                  {hint}
-                </button>
-              ))}
+          {state === 'idle' && (
+            <div className="mt-4">
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                {lang === 'hi-IN' ? 'उदाहरण' : 'Examples'}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {hints.map((hint) => (
+                  <button
+                    key={hint}
+                    type="button"
+                    onClick={() => {
+                      setEditableText(hint);
+                      void parseAndAdd(hint);
+                    }}
+                    className="text-xs text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-full px-3 py-1.5 touch-manipulation"
+                  >
+                    {hint}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
