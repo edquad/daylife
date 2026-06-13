@@ -37,7 +37,7 @@ function getCached(): LifeDashboardResult | null {
     const data = JSON.parse(raw) as LifeDashboardResult;
     if (!data._cached_at) return null;
     const age = Date.now() - new Date(data._cached_at).getTime();
-    if (age > 1000 * 60 * 60 * 6) return null;
+    if (age > 1000 * 60 * 60 * 4) return null;
     return data;
   } catch {
     return null;
@@ -49,24 +49,44 @@ function setCache(result: LifeDashboardResult): void {
   localStorage.setItem(CACHE_KEY, JSON.stringify(result));
 }
 
+function dateOffset(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function monthOffset(months: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+
 interface CollectedData {
   userName?: string;
   today: string;
   tasksToday: { total: number; done: number; overdue: number };
   tasksThisWeek: { total: number; done: number };
   tasksThisMonth: { total: number; done: number };
+  tasksLastMonth: { total: number; done: number };
   expensesToday: number;
   expensesThisMonth: number;
-  topCategories: Array<{ name: string; total: number }>;
+  expensesLastMonth: number;
+  topCategoriesThisMonth: Array<{ name: string; total: number }>;
+  topCategoriesLastMonth: Array<{ name: string; total: number }>;
   routines: Array<{ name: string; done: number; total: number }>;
   shoppingPending: number;
   dreams: string[];
   recentTaskTitles: string[];
+  missedTasks: string[];
+  taskCompletionRate7Days: number;
+  expenseLast7Days: number;
+  expenseTrend: string;
 }
 
 async function collectLifeData(userId?: string): Promise<CollectedData> {
   const today = todayISO();
-  const monthStart = today.slice(0, 8) + '01';
+  const weekAgo = dateOffset(-7);
+  const lastMonthDate = monthOffset(-1);
 
   const [dashboard, shopping, routinesData, vision] = await Promise.all([
     api.get<any>(`/dashboard/summary?date=${today}`),
@@ -75,14 +95,26 @@ async function collectLifeData(userId?: string): Promise<CollectedData> {
     api.get<VisionBoardItemEnriched[]>('/vision-board?achieved=false').catch(() => []),
   ]);
 
-  let expenseReport: any = null;
+  let expenseReportThisMonth: any = null;
+  let expenseReportLastMonth: any = null;
+  let allTasks: any[] = [];
+
   try {
-    expenseReport = await api.get(`/expenses/report?period=monthly&date=${today}`);
+    expenseReportThisMonth = await api.get(`/expenses/report?period=monthly&date=${today}`);
+  } catch { /* ok */ }
+
+  try {
+    expenseReportLastMonth = await api.get(`/expenses/report?period=monthly&date=${lastMonthDate}`);
+  } catch { /* ok */ }
+
+  try {
+    const taskRes = await api.get<{ data: Task[] }>('/tasks?limit=200');
+    allTasks = taskRes?.data ?? [];
   } catch { /* ok */ }
 
   const byPerson = dashboard?.byPerson ?? [];
-  const allTasks = byPerson.flatMap((p: any) => p.tasks as Task[]);
-  const doneTasks = allTasks.filter((t: Task) => t.status === 'DONE');
+  const todayTasks = byPerson.flatMap((p: any) => p.tasks as Task[]);
+  const doneTasks = todayTasks.filter((t: Task) => t.status === 'DONE');
   const overdue = dashboard?.overdueCount ?? 0;
 
   const routines = (routinesData?.routines ?? []).map((r) => ({
@@ -93,27 +125,71 @@ async function collectLifeData(userId?: string): Promise<CollectedData> {
 
   const shoppingItems = shopping?.data ?? [];
   const shoppingPending = shoppingItems.filter((i) => !i.checked).length;
-
   const dreams = (vision as VisionBoardItemEnriched[] || []).map((v) => v.title).slice(0, 5);
 
-  const topCategories = (expenseReport?.categories ?? [])
+  const topCategoriesThisMonth = (expenseReportThisMonth?.categories ?? [])
     .sort((a: any, b: any) => b.total - a.total)
     .slice(0, 5)
     .map((c: any) => ({ name: c.name, total: c.total }));
 
+  const topCategoriesLastMonth = (expenseReportLastMonth?.categories ?? [])
+    .sort((a: any, b: any) => b.total - a.total)
+    .slice(0, 5)
+    .map((c: any) => ({ name: c.name, total: c.total }));
+
+  const thisMonthTasks = allTasks.filter((t) => t.dueDate && t.dueDate.startsWith(today.slice(0, 7)));
+  const lastMonthTasks = allTasks.filter((t) => t.dueDate && t.dueDate.startsWith(lastMonthDate.slice(0, 7)));
+
+  const recentWeekTasks = allTasks.filter((t) => t.dueDate && t.dueDate >= weekAgo && t.dueDate <= today);
+  const recentWeekDone = recentWeekTasks.filter((t) => t.status === 'DONE').length;
+  const taskCompletionRate7Days = recentWeekTasks.length > 0 ? Math.round((recentWeekDone / recentWeekTasks.length) * 100) : 0;
+
+  const missedTasks = allTasks
+    .filter((t) => t.status !== 'DONE' && t.dueDate && t.dueDate < today)
+    .slice(0, 5)
+    .map((t) => t.title);
+
+  const expensesThisMonth = expenseReportThisMonth?.total ?? 0;
+  const expensesLastMonth = expenseReportLastMonth?.total ?? 0;
+  let expenseTrend = 'stable';
+  if (expensesLastMonth > 0) {
+    const change = ((expensesThisMonth - expensesLastMonth) / expensesLastMonth) * 100;
+    if (change > 20) expenseTrend = `up ${Math.round(change)}% vs last month`;
+    else if (change < -20) expenseTrend = `down ${Math.round(Math.abs(change))}% vs last month`;
+    else expenseTrend = 'roughly same as last month';
+  }
+
+  let expenseLast7Days = 0;
+  try {
+    for (let i = 0; i < 7; i++) {
+      const d = dateOffset(-i);
+      const dayRes = await api.get<{ total: number }>(`/expenses?date=${d}&limit=1`);
+      expenseLast7Days += dayRes?.total ?? 0;
+    }
+  } catch {
+    expenseLast7Days = parseFloat(dashboard?.todayExpenseTotal ?? '0') * 7;
+  }
+
   return {
     userName: undefined,
     today,
-    tasksToday: { total: allTasks.length, done: doneTasks.length, overdue },
-    tasksThisWeek: { total: allTasks.length, done: doneTasks.length },
-    tasksThisMonth: { total: dashboard?.monthTasksTotal ?? allTasks.length, done: dashboard?.monthTasksDone ?? doneTasks.length },
+    tasksToday: { total: todayTasks.length, done: doneTasks.length, overdue },
+    tasksThisWeek: { total: recentWeekTasks.length, done: recentWeekDone },
+    tasksThisMonth: { total: thisMonthTasks.length, done: thisMonthTasks.filter((t) => t.status === 'DONE').length },
+    tasksLastMonth: { total: lastMonthTasks.length, done: lastMonthTasks.filter((t) => t.status === 'DONE').length },
     expensesToday: parseFloat(dashboard?.todayExpenseTotal ?? '0') || 0,
-    expensesThisMonth: expenseReport?.total ?? 0,
-    topCategories,
+    expensesThisMonth,
+    expensesLastMonth,
+    topCategoriesThisMonth,
+    topCategoriesLastMonth,
     routines,
     shoppingPending,
     dreams,
-    recentTaskTitles: allTasks.slice(0, 10).map((t: Task) => t.title),
+    recentTaskTitles: todayTasks.slice(0, 10).map((t: Task) => t.title),
+    missedTasks,
+    taskCompletionRate7Days,
+    expenseLast7Days,
+    expenseTrend,
   };
 }
 
