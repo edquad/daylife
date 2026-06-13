@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../auth/AuthContext';
 import { api, VisionBoardItemEnriched, VisionCategory, User } from '../../lib/api';
-import { categoryMeta, VISION_CATEGORIES, VISION_INSPIRATIONS, VISION_BOARD_PRESETS, VISION_AFFIRMATIONS, VISION_CATEGORY_GROUPS } from '../../lib/visionBoard';
+import { categoryMeta, VISION_INSPIRATIONS, VISION_BOARD_PRESETS, VISION_AFFIRMATIONS, VISION_CATEGORY_GROUPS } from '../../lib/visionBoard';
 import { cn } from '../../lib/utils';
 import { toast } from '../../components/Toaster';
-import { Plus, Sparkles, Trash2, Check, X, ImageIcon, Star } from 'lucide-react';
+import { Plus, Sparkles, Trash2, Check, X, ImageIcon, Star, Brain } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
+import { DreamPlanModal } from '../../components/DreamPlanModal';
 
 type Filter = 'all' | 'active' | 'achieved' | 'mine' | 'shared';
 
@@ -42,6 +43,7 @@ export function VisionBoardPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState<VisionBoardItemEnriched | null>(null);
   const [form, setForm] = useState<FormState>(() => emptyForm(user?.id));
+  const [planDream, setPlanDream] = useState<{ title: string; category: string } | null>(null);
 
   const queryKey = ['vision-board', filter, user?.id];
 
@@ -334,6 +336,7 @@ export function VisionBoardPage() {
               onEdit={() => openEdit(item)}
               onToggle={() => toggleAchieved.mutate(item.id)}
               onDelete={() => deleteItem.mutate(item.id)}
+              onPlan={() => setPlanDream({ title: item.title, category: item.category })}
             />
           ))}
         </div>
@@ -447,6 +450,14 @@ export function VisionBoardPage() {
           </div>
         </div>
       )}
+
+      {planDream && (
+        <DreamPlanModal
+          dreamTitle={planDream.title}
+          category={planDream.category}
+          onClose={() => setPlanDream(null)}
+        />
+      )}
     </div>
   );
 }
@@ -457,12 +468,14 @@ function VisionCard({
   onEdit,
   onToggle,
   onDelete,
+  onPlan,
 }: {
   item: VisionBoardItemEnriched;
   members: User[];
   onEdit: () => void;
   onToggle: () => void;
   onDelete: () => void;
+  onPlan?: () => void;
 }) {
   const meta = categoryMeta(item.category);
   const owner = item.ownerId ? members.find((m) => m.id === item.ownerId) : null;
@@ -519,6 +532,16 @@ function VisionCard({
         </div>
       </div>
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+        {onPlan && !item.achieved && (
+          <button
+            type="button"
+            onClick={onPlan}
+            className="p-1.5 bg-white/90 rounded-lg shadow text-indigo-600 hover:bg-white"
+            title="AI Action Plan"
+          >
+            <Brain size={16} />
+          </button>
+        )}
         <button
           type="button"
           onClick={onToggle}

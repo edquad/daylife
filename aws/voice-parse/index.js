@@ -122,6 +122,62 @@ Rules:
 - Use Hindi titles if lang is hi-IN
 - dueDate must fall within the week range`;
 
+const LIFE_AUTOPILOT_PROMPT = `You are Rozka AI Life Autopilot — a personal chief of staff for Indian users.
+
+Every morning you generate a smart briefing based on user's real data: tasks, expenses, overdue items, habits, dreams, and stale promises/ideas they haven't acted on.
+
+Return ONLY valid JSON (no markdown):
+{
+  "doToday": ["action1", "action2", "action3", "action4", "action5"],
+  "dontToday": ["avoid1", "avoid2", "avoid3"],
+  "spendingWarning": "specific warning if overspending, null otherwise",
+  "healthWarning": "if routines broken or health habits missed, null otherwise",
+  "relationshipReminder": "remind about people they haven't connected with, null if none",
+  "highImpactTask": "the ONE task that gives maximum life progress today",
+  "regretAlerts": [{"task":"title","postponeCount":N,"daysSinceCreated":N,"warning":"specific honest warning"}],
+  "aiMessage": "2-3 sentences: honest, personal, motivational. Like a wise friend waking you up."
+}
+
+Rules:
+- doToday: MAX 5 most important things. Mix: 1 health, 1 money, 1 goal, 1 overdue, 1 routine. Be SPECIFIC.
+- dontToday: Things to AVOID today based on data patterns. E.g. "Don't order food — you spent ₹X on dining this week"
+- spendingWarning: Only if spending is >20% above last month or has a clear problem category
+- regretAlerts: Things postponed >14 days. Be brutally honest: "You've been avoiding X for Y days. Every day you delay costs you Z."
+- highImpactTask: Pick the ONE task that most moves toward their biggest dream/goal
+- If stale memories exist (promises/ideas not acted on), mention them in aiMessage
+- Use Hindi if lang is hi-IN, English if en-US
+- Be a strict but caring chief of staff, not a soft motivational speaker`;
+
+const DREAM_PLAN_PROMPT = `You are Rozka AI — an AI Chief of Staff that creates automatic action plans when users declare a dream or goal.
+
+Given a dream/goal title and category, generate a COMPLETE actionable plan.
+
+Return ONLY valid JSON (no markdown):
+{
+  "summary": "1-2 sentence rewrite of the goal with clarity and timeline",
+  "monthlyTargets": [
+    {"month": 1, "target": "specific measurable target", "tasks": ["task1","task2","task3"]},
+    {"month": 2, "target": "...", "tasks": ["..."]},
+    {"month": 3, "target": "...", "tasks": ["..."]}
+  ],
+  "weeklyHabits": ["habit1 to do daily/weekly", "habit2", "habit3"],
+  "budgetImpact": "how this affects money — savings needed, cuts required, or 'no cost'",
+  "risks": ["risk1 that could derail this", "risk2"],
+  "successProbability": 75,
+  "firstStepToday": "the ONE thing to do TODAY to start this dream"
+}
+
+Rules:
+- monthlyTargets: Create exactly 3-6 months of targets. Each month has 3-5 specific tasks.
+- Tasks should be small, actionable, achievable in 1-2 hours each.
+- weeklyHabits: 3-5 habits that support this dream long-term.
+- budgetImpact: Be specific with numbers if financial goal (e.g., "Save ₹15,000/month").
+- risks: Honest about what could go wrong.
+- successProbability: Realistic 0-100 score based on typical achievement rates.
+- firstStepToday: Ultra-specific, can be done in 15 minutes.
+- Use Hindi if lang is hi-IN, English if en-US.
+- Make it feel like a CEO created this plan for their most important project.`;
+
 const LIFE_DASHBOARD_PROMPT = `You are Rozka AI — a personal life operating system and coach for Indian users.
 
 You receive COMPREHENSIVE life data including:
@@ -529,6 +585,108 @@ async function parseLifeDashboard(lang, context) {
   throw lastError || new Error('Life dashboard failed');
 }
 
+async function invokeLifeAutopilot(client, modelId, lang, context) {
+  const userPayload = JSON.stringify({ mode: 'life_autopilot', lang, context });
+  const command = new ConverseCommand({
+    modelId,
+    system: [{ text: LIFE_AUTOPILOT_PROMPT }],
+    messages: [{ role: 'user', content: [{ text: userPayload }] }],
+    inferenceConfig: { maxTokens: 1500, temperature: 0.3 },
+  });
+  const result = await client.send(command);
+  const text = result.output?.message?.content?.map((c) => c.text).filter(Boolean).join('') || '';
+  const parsed = extractJson(text);
+  return sanitizeAutopilot(parsed);
+}
+
+function sanitizeAutopilot(raw) {
+  const strArr = (arr, max = 5) =>
+    (Array.isArray(arr) ? arr : []).map((s) => String(s).trim()).filter(Boolean).slice(0, max);
+  return {
+    doToday: strArr(raw.doToday, 5),
+    dontToday: strArr(raw.dontToday, 3),
+    spendingWarning: raw.spendingWarning ? String(raw.spendingWarning).trim().slice(0, 200) : null,
+    healthWarning: raw.healthWarning ? String(raw.healthWarning).trim().slice(0, 200) : null,
+    relationshipReminder: raw.relationshipReminder ? String(raw.relationshipReminder).trim().slice(0, 200) : null,
+    highImpactTask: raw.highImpactTask ? String(raw.highImpactTask).trim().slice(0, 150) : null,
+    regretAlerts: (Array.isArray(raw.regretAlerts) ? raw.regretAlerts : []).slice(0, 3).map((r) => ({
+      task: String(r?.task || '').trim(),
+      postponeCount: Number(r?.postponeCount) || 0,
+      daysSinceCreated: Number(r?.daysSinceCreated) || 0,
+      warning: String(r?.warning || '').trim().slice(0, 200),
+    })),
+    aiMessage: String(raw.aiMessage || '').trim().slice(0, 400),
+  };
+}
+
+async function parseLifeAutopilot(lang, context) {
+  const region = process.env.AWS_REGION || 'ap-south-1';
+  const client = new BedrockRuntimeClient({ region });
+  let lastError = null;
+
+  for (const modelId of MODEL_IDS) {
+    try {
+      const autopilot = await invokeLifeAutopilot(client, modelId, lang, context);
+      if (!autopilot.aiMessage && autopilot.doToday.length === 0) throw new Error('Empty autopilot');
+      return { autopilot, model: modelId };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Life autopilot failed');
+}
+
+async function invokeDreamPlan(client, modelId, lang, context) {
+  const userPayload = JSON.stringify({ mode: 'dream_plan', lang, context });
+  const command = new ConverseCommand({
+    modelId,
+    system: [{ text: DREAM_PLAN_PROMPT }],
+    messages: [{ role: 'user', content: [{ text: userPayload }] }],
+    inferenceConfig: { maxTokens: 2000, temperature: 0.4 },
+  });
+  const result = await client.send(command);
+  const text = result.output?.message?.content?.map((c) => c.text).filter(Boolean).join('') || '';
+  const parsed = extractJson(text);
+  return sanitizeDreamPlan(parsed);
+}
+
+function sanitizeDreamPlan(raw) {
+  const strArr = (arr, max = 10) =>
+    (Array.isArray(arr) ? arr : []).map((s) => String(s).trim()).filter(Boolean).slice(0, max);
+  return {
+    summary: String(raw.summary || '').trim().slice(0, 300),
+    monthlyTargets: (Array.isArray(raw.monthlyTargets) ? raw.monthlyTargets : []).slice(0, 6).map((m) => ({
+      month: Number(m?.month) || 1,
+      target: String(m?.target || '').trim().slice(0, 200),
+      tasks: strArr(m?.tasks, 5),
+    })),
+    weeklyHabits: strArr(raw.weeklyHabits, 5),
+    budgetImpact: String(raw.budgetImpact || '').trim().slice(0, 200),
+    risks: strArr(raw.risks, 4),
+    successProbability: Math.min(100, Math.max(0, Number(raw.successProbability) || 50)),
+    firstStepToday: String(raw.firstStepToday || '').trim().slice(0, 200),
+  };
+}
+
+async function parseDreamPlan(lang, context) {
+  const region = process.env.AWS_REGION || 'ap-south-1';
+  const client = new BedrockRuntimeClient({ region });
+  let lastError = null;
+
+  for (const modelId of MODEL_IDS) {
+    try {
+      const plan = await invokeDreamPlan(client, modelId, lang, context);
+      if (!plan.summary && plan.monthlyTargets.length === 0) throw new Error('Empty dream plan');
+      return { plan, model: modelId };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Dream plan failed');
+}
+
 exports.handler = async (event) => {
   const method = event.requestContext?.http?.method || event.httpMethod || 'GET';
 
@@ -581,6 +739,26 @@ exports.handler = async (event) => {
       return response(200, { ok: true, ...dashboard, model });
     } catch (err) {
       const message = err?.message || 'Life dashboard failed';
+      return response(500, { ok: false, error: message });
+    }
+  }
+
+  if (payload.mode === 'life_autopilot') {
+    try {
+      const { autopilot, model } = await parseLifeAutopilot(lang, context);
+      return response(200, { ok: true, ...autopilot, model });
+    } catch (err) {
+      const message = err?.message || 'Life autopilot failed';
+      return response(500, { ok: false, error: message });
+    }
+  }
+
+  if (payload.mode === 'dream_plan') {
+    try {
+      const { plan, model } = await parseDreamPlan(lang, context);
+      return response(200, { ok: true, ...plan, model });
+    } catch (err) {
+      const message = err?.message || 'Dream plan failed';
       return response(500, { ok: false, error: message });
     }
   }

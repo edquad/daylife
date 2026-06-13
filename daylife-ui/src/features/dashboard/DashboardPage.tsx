@@ -17,6 +17,7 @@ import { useInviteActions, useInviteAcceptedNotifier } from '../../hooks/useInvi
 import { getDayPhase, phaseGreeting } from '../../lib/dailyFlow';
 import { runMorningSetup, shouldOfferMorningSetup } from '../../lib/morningSetup';
 import { AiCoachCard } from '../../components/AiCoachCard';
+import { AutopilotCard } from '../../components/AutopilotCard';
 import { PendingInvitesBanner } from '../../components/PendingInvitesBanner';
 import { TaskFormModal } from '../tasks/TaskFormModal';
 import { toast } from '../../components/Toaster';
@@ -24,6 +25,8 @@ import type { LifeSnapshot } from '../../lib/aiCoach';
 import type { ShareScope } from '../../lib/shareScope';
 import { defaultVisibility } from '../../lib/privacy';
 import { cn, AREA_COLORS, AREA_LABELS } from '../../lib/utils';
+import { getStaleMemories } from '../../lib/lifeAutopilot';
+import type { AutopilotContext } from '../../lib/lifeAutopilot';
 import {
   Plus, Circle, CheckCircle2, ShoppingCart, Bell, Sparkles,
   ChevronDown, ChevronUp, Loader2, Trash2,
@@ -254,6 +257,25 @@ export function DashboardPage() {
           {morningLoading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
           AI morning plan
         </button>
+      )}
+
+      {/* AI Autopilot */}
+      {isToday && (
+        <AutopilotCard context={{
+          userName: user?.name,
+          tasksToday: todayTotal,
+          tasksDone: todayDone,
+          overdue: data?.overdueCount ?? 0,
+          missedTasks: allTasks.filter((t) => t.status !== 'DONE' && t.dueDate && t.dueDate < selectedDate).map((t) => t.title).slice(0, 5),
+          expensesToday: parseFloat(data?.todayExpenseTotal ?? '0') || 0,
+          expensesThisMonth: 0,
+          expensesLastMonth: 0,
+          expenseTrend: '',
+          routinesPending,
+          dreams: lifeSnapshot.dreams,
+          staleMemories: getStaleMemories(14).map((m) => ({ content: m.content, daysSince: Math.floor((Date.now() - new Date(m.date).getTime()) / 86400000), type: m.type })),
+          postponedTasks: allTasks.filter((t) => t.status !== 'DONE' && t.dueDate && t.dueDate < selectedDate).map((t) => ({ title: t.title, daysSinceCreated: Math.floor((Date.now() - new Date(t.dueDate!).getTime()) / 86400000) })).slice(0, 5),
+        }} />
       )}
 
       {/* Tasks with area chips */}

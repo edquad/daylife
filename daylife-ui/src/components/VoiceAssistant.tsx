@@ -15,6 +15,7 @@ import {
 } from '../lib/voiceCommands';
 import { parseVoiceTranscriptSmart, voiceAiSupported } from '../lib/voiceBedrock';
 import { executeVoiceActions, voiceQueryKeysToInvalidate } from '../lib/executeVoiceCommands';
+import { addMemory } from '../lib/lifeAutopilot';
 import {
   collectTranscript,
   getSpeechRecognitionCtor,
@@ -144,6 +145,7 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
       setTranscript(trimmed);
       setState('processing');
       setStatusLine(lang === 'hi-IN' ? 'AI समझ रहा है…' : 'AI understanding…');
+      addMemory({ type: 'voice_input', content: trimmed });
       try {
         const { actions } = await parseVoiceTranscriptSmart(trimmed, lang);
         if (actions.length === 0) {
@@ -155,6 +157,11 @@ export function VoiceAssistantSheet({ open, onClose }: VoiceAssistantSheetProps)
           setState('confirm');
           setEditableText(trimmed);
           return;
+        }
+        // Categorize memories from parsed actions
+        for (const a of actions) {
+          if (a.type === 'note' && /idea|plan|concept|dream|goal/i.test(trimmed)) addMemory({ type: 'idea', content: (a as any).title || (a as any).content || trimmed });
+          else if (/promise|will do|pakka|zaroor/i.test(trimmed)) addMemory({ type: 'promise', content: trimmed });
         }
         await addActions(actions, trimmed);
       } catch {
