@@ -10,6 +10,7 @@ import { DashboardPage } from './features/dashboard/DashboardPage';
 import { MoneyPage } from './features/money/MoneyPage';
 import { CommsPage } from './features/comms/CommsPage';
 import { MorePage } from './features/more/MorePage';
+import { LifeDashboardPage } from './features/life/LifeDashboardPage';
 import { AiCalendarPage } from './features/calendar/AiCalendarPage';
 import { VisionBoardPage } from './features/vision/VisionBoardPage';
 import { SettingsPage } from './features/settings/SettingsPage';
@@ -73,6 +74,7 @@ export default function App() {
               <Route path="more" element={<ErrorBoundary><MorePage /></ErrorBoundary>} />
 
               {/* Accessible from More */}
+              <Route path="life" element={<ErrorBoundary><LifeDashboardPage /></ErrorBoundary>} />
               <Route path="vision" element={<ErrorBoundary><VisionBoardPage /></ErrorBoundary>} />
               <Route path="calendar" element={<ErrorBoundary><AiCalendarPage /></ErrorBoundary>} />
               <Route path="share" element={<ErrorBoundary><ConnectionsPage /></ErrorBoundary>} />

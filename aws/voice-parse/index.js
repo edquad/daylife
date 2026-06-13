@@ -122,6 +122,47 @@ Rules:
 - Use Hindi titles if lang is hi-IN
 - dueDate must fall within the week range`;
 
+const LIFE_DASHBOARD_PROMPT = `You are Rozka AI — a personal life operating system and coach for Indian users.
+
+You receive comprehensive life data: tasks (done/missed/overdue), expenses (daily/monthly/categories), routines (consistency), dreams/goals, shopping patterns, and activity history.
+
+Analyze everything and return ONLY valid JSON (no markdown):
+{
+  "life_score": 0-100,
+  "productivity_score": 0-100,
+  "financial_score": 0-100,
+  "health_score": 0-100,
+  "consistency_score": 0-100,
+  "top_strengths": ["strength1", "strength2", "strength3"],
+  "top_weaknesses": ["weakness1", "weakness2"],
+  "hidden_patterns": ["pattern1", "pattern2", "pattern3"],
+  "future_predictions": ["prediction1", "prediction2"],
+  "goal_progress": [{"goal": "dream title", "progress_pct": 0-100, "next_step": "action"}],
+  "life_loopholes": [{"problem": "...", "evidence": "...", "fix": "...", "priority": "high"|"medium"|"low"}],
+  "spending_insight": "one line about spending pattern",
+  "weekly_wins": ["win1", "win2"],
+  "weekly_misses": ["miss1", "miss2"],
+  "recommended_actions": [{"type":"task","title":"...","area":"PERSONAL"|"WORK"|"HOME"}],
+  "ai_coach_message": "2-3 sentences personalized motivational + honest feedback",
+  "morning_briefing": "what to focus on today"
+}
+
+Scoring rules:
+- productivity_score: based on task completion rate, overdue count, consistency
+- financial_score: based on spending vs income awareness, category balance, unnecessary spending detection
+- health_score: based on routine consistency (exercise, sleep, meals mentioned in routines)
+- consistency_score: based on how regularly user logs tasks, expenses, completes routines
+- life_score: weighted average of all scores
+
+Pattern detection rules:
+- Look for spending spikes on specific days/categories
+- Look for task procrastination patterns
+- Look for routine breaks (missed days)
+- Look for goal abandonment signals
+
+Be honest but supportive. Use data-backed observations. Use Hindi if lang is hi-IN, English if en-US.
+Keep each string concise (max 1-2 sentences). Max 3 items per array unless specified.`;
+
 function response(statusCode, body) {
   return { statusCode, headers: corsHeaders, body: JSON.stringify(body) };
 }
@@ -299,6 +340,54 @@ async function invokeCalendarPlan(client, modelId, lang, context) {
   };
 }
 
+async function invokeLifeDashboard(client, modelId, lang, context) {
+  const userPayload = JSON.stringify({ mode: 'life_dashboard', lang, context });
+  const command = new ConverseCommand({
+    modelId,
+    system: [{ text: LIFE_DASHBOARD_PROMPT }],
+    messages: [{ role: 'user', content: [{ text: userPayload }] }],
+    inferenceConfig: { maxTokens: 2500, temperature: 0.3 },
+  });
+  const result = await client.send(command);
+  const text = result.output?.message?.content?.map((c) => c.text).filter(Boolean).join('') || '';
+  const parsed = extractJson(text);
+  return sanitizeLifeDashboard(parsed, context.today || context.selectedDate);
+}
+
+function sanitizeLifeDashboard(raw, dueDate) {
+  const clamp = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
+  const strArr = (arr, max = 3) =>
+    (Array.isArray(arr) ? arr : []).map((s) => String(s).trim()).filter(Boolean).slice(0, max);
+  return {
+    life_score: clamp(raw.life_score),
+    productivity_score: clamp(raw.productivity_score),
+    financial_score: clamp(raw.financial_score),
+    health_score: clamp(raw.health_score),
+    consistency_score: clamp(raw.consistency_score),
+    top_strengths: strArr(raw.top_strengths),
+    top_weaknesses: strArr(raw.top_weaknesses),
+    hidden_patterns: strArr(raw.hidden_patterns),
+    future_predictions: strArr(raw.future_predictions),
+    goal_progress: (Array.isArray(raw.goal_progress) ? raw.goal_progress : []).slice(0, 5).map((g) => ({
+      goal: String(g?.goal || '').trim(),
+      progress_pct: clamp(g?.progress_pct),
+      next_step: String(g?.next_step || '').trim(),
+    })),
+    life_loopholes: (Array.isArray(raw.life_loopholes) ? raw.life_loopholes : []).slice(0, 4).map((l) => ({
+      problem: String(l?.problem || '').trim(),
+      evidence: String(l?.evidence || '').trim(),
+      fix: String(l?.fix || '').trim(),
+      priority: ['high', 'medium', 'low'].includes(l?.priority) ? l.priority : 'medium',
+    })),
+    spending_insight: String(raw.spending_insight || '').trim().slice(0, 200),
+    weekly_wins: strArr(raw.weekly_wins),
+    weekly_misses: strArr(raw.weekly_misses),
+    recommended_actions: sanitizeSuggestedTasks(raw.recommended_actions, dueDate),
+    ai_coach_message: String(raw.ai_coach_message || '').trim().slice(0, 500),
+    morning_briefing: String(raw.morning_briefing || '').trim().slice(0, 300),
+  };
+}
+
 async function transcribePcm(pcmBuffer, languageCode, sampleRateHertz) {
   const region = process.env.AWS_REGION || 'ap-south-1';
   const client = new TranscribeStreamingClient({ region });
@@ -407,6 +496,24 @@ async function parseCalendarPlan(lang, context) {
   throw lastError || new Error('Calendar plan failed');
 }
 
+async function parseLifeDashboard(lang, context) {
+  const region = process.env.AWS_REGION || 'ap-south-1';
+  const client = new BedrockRuntimeClient({ region });
+  let lastError = null;
+
+  for (const modelId of MODEL_IDS) {
+    try {
+      const dashboard = await invokeLifeDashboard(client, modelId, lang, context);
+      if (!dashboard.ai_coach_message && dashboard.life_score === 0) throw new Error('Empty dashboard');
+      return { dashboard, model: modelId };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Life dashboard failed');
+}
+
 exports.handler = async (event) => {
   const method = event.requestContext?.http?.method || event.httpMethod || 'GET';
 
@@ -449,6 +556,16 @@ exports.handler = async (event) => {
       });
     } catch (err) {
       const message = err?.message || 'Calendar plan failed';
+      return response(500, { ok: false, error: message });
+    }
+  }
+
+  if (payload.mode === 'life_dashboard') {
+    try {
+      const { dashboard, model } = await parseLifeDashboard(lang, context);
+      return response(200, { ok: true, ...dashboard, model });
+    } catch (err) {
+      const message = err?.message || 'Life dashboard failed';
       return response(500, { ok: false, error: message });
     }
   }

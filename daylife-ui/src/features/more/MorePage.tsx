@@ -5,10 +5,11 @@ import { useConnections } from '../../hooks/useConnections';
 import { useChatUnreadCount } from '../../hooks/useChatUnread';
 import {
   Star, Calendar, Users, Settings, LogOut,
-  ChevronRight, Shield,
+  ChevronRight, Shield, Brain,
 } from 'lucide-react';
 
 const menuItems = [
+  { path: '/life', label: 'Life Dashboard', hint: 'AI scores, patterns, predictions', icon: Brain, color: 'text-violet-600 bg-violet-50' },
   { path: '/vision', label: 'Dreams & Goals', hint: 'AI future plan', icon: Star, color: 'text-amber-600 bg-amber-50' },
   { path: '/calendar', label: 'AI Calendar', hint: 'Month view + AI week plan', icon: Calendar, color: 'text-blue-600 bg-blue-50' },
   { path: '/share', label: 'Share & Connect', hint: 'Invite people, manage sharing', icon: Users, color: 'text-violet-600 bg-violet-50' },
