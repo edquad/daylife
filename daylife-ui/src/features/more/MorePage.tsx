@@ -5,11 +5,14 @@ import { useConnections } from '../../hooks/useConnections';
 import { useChatUnreadCount } from '../../hooks/useChatUnread';
 import {
   Star, Calendar, Users, Settings, LogOut,
-  ChevronRight, Shield, Brain, Lightbulb,
+  ChevronRight, Shield, Brain, Lightbulb, Navigation, Film, HelpCircle,
 } from 'lucide-react';
 
 const menuItems = [
   { path: '/life', label: 'Life Dashboard', hint: 'AI scores, patterns, predictions', icon: Brain, color: 'text-violet-600 bg-violet-50' },
+  { path: '/gps', label: 'Life GPS', hint: 'Where your life is heading', icon: Navigation, color: 'text-slate-700 bg-slate-50' },
+  { path: '/decide', label: 'AI Decisions', hint: 'Should I buy this? AI checks', icon: HelpCircle, color: 'text-indigo-600 bg-indigo-50' },
+  { path: '/replay', label: 'Life Replay', hint: 'Monthly recap — your movie', icon: Film, color: 'text-amber-600 bg-amber-50' },
   { path: '/memory', label: 'AI Memory', hint: 'Promises, ideas, everything Rozka remembers', icon: Lightbulb, color: 'text-indigo-600 bg-indigo-50' },
   { path: '/vision', label: 'Dreams & Goals', hint: 'AI future plan', icon: Star, color: 'text-amber-600 bg-amber-50' },
   { path: '/calendar', label: 'AI Calendar', hint: 'Month view + AI week plan', icon: Calendar, color: 'text-blue-600 bg-blue-50' },

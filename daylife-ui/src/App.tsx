@@ -12,6 +12,9 @@ import { CommsPage } from './features/comms/CommsPage';
 import { MorePage } from './features/more/MorePage';
 import { LifeDashboardPage } from './features/life/LifeDashboardPage';
 import MemoryPage from './features/memory/MemoryPage';
+import DecisionPage from './features/decision/DecisionPage';
+import LifeGPSPage from './features/gps/LifeGPSPage';
+import LifeReplayPage from './features/replay/LifeReplayPage';
 import { AiCalendarPage } from './features/calendar/AiCalendarPage';
 import { VisionBoardPage } from './features/vision/VisionBoardPage';
 import { SettingsPage } from './features/settings/SettingsPage';
@@ -77,6 +80,9 @@ export default function App() {
               {/* Accessible from More */}
               <Route path="life" element={<ErrorBoundary><LifeDashboardPage /></ErrorBoundary>} />
               <Route path="memory" element={<ErrorBoundary><MemoryPage /></ErrorBoundary>} />
+              <Route path="decide" element={<ErrorBoundary><DecisionPage /></ErrorBoundary>} />
+              <Route path="gps" element={<ErrorBoundary><LifeGPSPage /></ErrorBoundary>} />
+              <Route path="replay" element={<ErrorBoundary><LifeReplayPage /></ErrorBoundary>} />
               <Route path="vision" element={<ErrorBoundary><VisionBoardPage /></ErrorBoundary>} />
               <Route path="calendar" element={<ErrorBoundary><AiCalendarPage /></ErrorBoundary>} />
               <Route path="share" element={<ErrorBoundary><ConnectionsPage /></ErrorBoundary>} />
