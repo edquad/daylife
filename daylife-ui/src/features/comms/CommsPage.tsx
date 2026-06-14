@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { ChatPage } from '../chat/ChatPage';
 import { GmailMailPage } from '../mail/GmailMailPage';
 import { cn } from '../../lib/utils';
@@ -6,6 +7,11 @@ import { MessageCircle, Mail } from 'lucide-react';
 
 export function CommsPage() {
   const [tab, setTab] = useState<'chat' | 'mail'>('chat');
+  const { spaceId } = useParams<{ spaceId?: string }>();
+
+  if (spaceId) {
+    return <ChatPage embedded />;
+  }
 
   return (
     <div className="max-w-lg mx-auto">
@@ -34,7 +40,7 @@ export function CommsPage() {
         </div>
       </div>
 
-      <div className="p-4">
+      <div className="px-4 pt-2 pb-4">
         {tab === 'chat' ? <ChatPage embedded /> : <GmailMailPage embedded />}
       </div>
     </div>

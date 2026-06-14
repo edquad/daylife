@@ -228,9 +228,9 @@ function ChatThread({ spaceId }: { spaceId: string }) {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-7rem)] sm:h-[calc(100dvh-5rem)] max-w-lg mx-auto">
+    <div className="flex flex-col fixed inset-0 top-0 bottom-16 z-30 bg-white max-w-lg mx-auto left-0 right-0">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b bg-white sticky top-0 z-10">
+      <div className="flex items-center gap-3 px-4 py-3 border-b bg-white z-10 shrink-0">
         <button
           type="button"
           onClick={() => navigate('/comms')}
@@ -369,7 +369,7 @@ function ChatThread({ spaceId }: { spaceId: string }) {
 
       {/* Input area */}
       <form
-        className="flex items-end gap-2 px-4 py-3 border-t bg-white shrink-0"
+        className="flex items-end gap-2 px-4 py-2.5 border-t bg-white shrink-0"
         onSubmit={handleSubmit}
       >
         <div className="flex-1 relative">
@@ -379,7 +379,7 @@ function ChatThread({ spaceId }: { spaceId: string }) {
             onChange={(e) => setDraft(e.target.value)}
             placeholder={draft.startsWith('/ai') ? 'Ask Rozka AI anything...' : 'Type a message...'}
             className={cn(
-              'w-full px-4 py-3 border rounded-2xl text-sm outline-none focus:ring-2 focus:ring-violet-500 pr-10',
+              'w-full px-4 py-2.5 border rounded-2xl text-sm outline-none focus:ring-2 focus:ring-violet-500 pr-10',
               draft.startsWith('/ai') && 'border-violet-300 bg-violet-50',
             )}
             autoComplete="off"
@@ -403,7 +403,7 @@ function ChatThread({ spaceId }: { spaceId: string }) {
           type="submit"
           disabled={!draft.trim() || send.isPending || askAI.isPending}
           className={cn(
-            'w-11 h-11 rounded-2xl flex items-center justify-center disabled:opacity-50 shrink-0 transition-colors',
+            'w-10 h-10 rounded-2xl flex items-center justify-center disabled:opacity-50 shrink-0 transition-colors',
             draft.startsWith('/ai') ? 'bg-violet-600 text-white' : 'bg-indigo-600 text-white',
           )}
         >
