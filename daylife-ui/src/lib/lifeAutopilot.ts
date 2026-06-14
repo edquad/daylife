@@ -91,8 +91,9 @@ function getAutopilotCache(): AutopilotBriefing | null {
     if (!raw) return null;
     const data = JSON.parse(raw) as AutopilotBriefing;
     if (!data._cached_at) return null;
-    const cachedDate = data._cached_at.slice(0, 10);
-    if (cachedDate !== todayISO()) return null;
+    const cachedAt = new Date(data._cached_at).getTime();
+    const hoursSince = (Date.now() - cachedAt) / (1000 * 60 * 60);
+    if (hoursSince > 4) return null;
     return data;
   } catch {
     return null;

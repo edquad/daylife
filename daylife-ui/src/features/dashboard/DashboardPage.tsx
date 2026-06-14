@@ -275,7 +275,10 @@ export function DashboardPage() {
           dreams: lifeSnapshot.dreams,
           staleMemories: getStaleMemories(14).map((m) => ({ content: m.content, daysSince: Math.floor((Date.now() - new Date(m.date).getTime()) / 86400000), type: m.type })),
           postponedTasks: allTasks.filter((t) => t.status !== 'DONE' && t.dueDate && t.dueDate < selectedDate).map((t) => ({ title: t.title, daysSinceCreated: Math.floor((Date.now() - new Date(t.dueDate!).getTime()) / 86400000) })).slice(0, 5),
-        }} />
+          pendingTaskTitles: pendingTasks.map((t) => t.title).slice(0, 10),
+          routineNames: routines.map((r) => r.name),
+          shoppingItems: shoppingPending.map((i) => i.name).slice(0, 5),
+        } as any} />
       )}
 
       {/* Tasks with area chips */}
