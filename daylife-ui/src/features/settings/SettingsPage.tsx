@@ -166,6 +166,16 @@ export function SettingsPage() {
     if (!confirm('Delete ALL data on this device? This cannot be undone.')) return;
     localStorage.removeItem('daylife_data');
     localStorage.removeItem('daylife_session');
+    localStorage.removeItem('rozka_ai_memory');
+    localStorage.removeItem('rozka_autopilot_cache');
+    localStorage.removeItem('rozka_dream_plans');
+    localStorage.removeItem('rozka_life_dashboard_cache');
+    const keys = Object.keys(localStorage);
+    for (const key of keys) {
+      if (key.startsWith('daylife_') || key.startsWith('rozka_')) {
+        localStorage.removeItem(key);
+      }
+    }
     toast.success('All data cleared');
     logout();
   };

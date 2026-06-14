@@ -58,6 +58,15 @@ const routerBasename = import.meta.env.BASE_URL.replace(/\/$/, '') || undefined;
 export default function App() {
   React.useEffect(() => {
     checkForNewerAppBuild();
+
+    // One-time cache clear (v2 - clears hallucinated AI data)
+    const CACHE_VERSION = 'rozka_cache_v2';
+    if (!localStorage.getItem(CACHE_VERSION)) {
+      localStorage.removeItem('rozka_autopilot_cache');
+      localStorage.removeItem('rozka_dream_plans');
+      localStorage.removeItem('rozka_life_dashboard_cache');
+      localStorage.setItem(CACHE_VERSION, '1');
+    }
   }, []);
 
   return (
