@@ -6,7 +6,8 @@ import { normalizeUsername, validateUsername } from '../../lib/accounts';
 import { validatePinFormat, validateRecoveryCodeFormat, formatRecoveryCode } from '../../lib/pin';
 import { AppLogo } from '../../components/AppLogo';
 import { APP_NAME, APP_TAGLINE } from '../../lib/brand';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Play } from 'lucide-react';
+import { activateDemoMode } from '../../lib/demoData';
 
 type Tab = 'login' | 'signup' | 'forgot';
 
@@ -296,7 +297,26 @@ export function LoginPage() {
             </p>
           )}
 
-          <p className="text-xs text-gray-400 text-center mt-6 leading-relaxed">
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
+            <div className="relative flex justify-center text-xs"><span className="bg-white px-3 text-gray-400">or</span></div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              activateDemoMode();
+              window.location.reload();
+            }}
+            className="w-full py-3 bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-semibold rounded-xl hover:from-purple-600 hover:to-indigo-700 flex items-center justify-center gap-2 shadow-lg"
+          >
+            <Play size={16} fill="white" /> Try Demo
+          </button>
+          <p className="text-xs text-gray-400 text-center mt-2">
+            Explore with pre-loaded data — no sign up needed
+          </p>
+
+          <p className="text-xs text-gray-400 text-center mt-4 leading-relaxed">
             Your account is yours alone. Later, use <span className="font-medium text-gray-500">Share</span> to invite someone by username — only what you pick gets shared.
           </p>
         </div>

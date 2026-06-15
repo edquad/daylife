@@ -5,6 +5,7 @@ import { clearUnlock, markUserUnlocked } from '../../lib/pin';
 import { queryClient } from '../../lib/queryClient';
 import { createAccount, resolveAccountId, setActiveAccountId, getActiveAccountId, normalizeUsername } from '../../lib/accounts';
 import { loadGitHubConfig, saveGitHubConfig, syncNow, flushCloudSyncNow, pullAndMerge } from '../../lib/githubSync';
+import { DEMO_USER_INFO } from '../../lib/demoData';
 
 export interface SignupInput {
   username: string;
@@ -51,6 +52,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refreshFromStorage();
+
+    const demoSession = localStorage.getItem('daylife_session');
+    if (demoSession) {
+      try {
+        const parsed = JSON.parse(demoSession);
+        if (parsed?.userId === DEMO_USER_INFO.id) {
+          setUser({ id: DEMO_USER_INFO.id, name: DEMO_USER_INFO.name, username: DEMO_USER_INFO.username, color: DEMO_USER_INFO.color } as User);
+          setIsLoading(false);
+          return;
+        }
+      } catch { /* not demo */ }
+    }
+
     const savedToken = api.getToken();
     if (savedToken && getActiveAccountId()) {
       api.get<User>('/auth/me')
@@ -220,6 +234,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     api.setToken(null);
     setUser(null);
     setActiveAccountId(null);
+    localStorage.removeItem('daylife_session');
   };
 
   const refreshUser = async () => {
